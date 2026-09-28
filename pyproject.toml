@@ -1,0 +1,40 @@
+[project]
+name = "agilex_control"
+dynamic = ["version"]
+description = "A wrapper around pyAgxArm for controlling AgileX arms."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name="Reimagine Robotics", email="info@reimaginerobotics.ai" },
+]
+dependencies = [
+    "numpy",
+    "packaging",
+    "pyAgxArm @ git+https://github.com/agilexrobotics/pyAgxArm@841a625",
+]
+
+[project.optional-dependencies]
+gravity = [
+    "mujoco",
+    "scipy",
+]
+
+[project.urls]
+Repository = "https://github.com/Reimagine-Robotics/agilex_control"
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+backend-path = ["_custom_build_backend"]
+build-backend = "backend"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+  "jupyterlab>=4.4.5",
+  "pre-commit>=4.2.0",
+  "pylint>=3.3.8",
+]
