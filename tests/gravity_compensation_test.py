@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from agilex_control.gravity_compensation import GravityCompensationModel
+from agilex_control import gravity_compensation
 
 # A tiny two-link pendulum, horizontal under gravity, so predict() returns a
 # non-zero torque.
@@ -27,7 +27,9 @@ def test_predict_runs(tmp_path):
   model_path = tmp_path / "two_link.xml"
   model_path.write_text(_TWO_LINK_MODEL)
 
-  model = GravityCompensationModel(model_path, joint_names=("joint1", "joint2"))
+  model = gravity_compensation.GravityCompensationModel(
+      model_path, joint_names=("joint1", "joint2")
+  )
   tau = model.predict(np.zeros(2))
 
   assert tau.shape == (2,)

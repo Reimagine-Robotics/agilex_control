@@ -162,6 +162,10 @@ class ArmInterface:
       # Just return the raw string if parsing fails
       return self._firmware_version
 
+  def get_num_joints(self) -> int:
+    """Returns the number of joints on the arm."""
+    return self._arm.joint_nums
+
   def get_joint_positions(self) -> list[float]:
     """
     Returns the current joint positions as a sequence of floats (radians).
@@ -183,7 +187,7 @@ class ArmInterface:
     """
     states = [
         self._arm.get_motor_states(i)
-        for i in range(1, self._arm.joint_nums + 1)
+        for i in range(1, self.get_num_joints() + 1)
     ]
     if any(state is None for state in states):
       raise RuntimeError("No motor state feedback available.")

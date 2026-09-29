@@ -7,7 +7,7 @@ the per-argument values.
 
 # pylint: disable=protected-access
 
-from agilex_control.agilex_interface import ArmInterface
+from agilex_control import agilex_interface
 
 
 class _FakeDriver:
@@ -32,9 +32,9 @@ class _FakeDriver:
     )
 
 
-def _interface_with_fake() -> ArmInterface:
+def _interface_with_fake() -> agilex_interface.ArmInterface:
   """Build an ArmInterface without connecting, backed by a fake driver."""
-  arm = ArmInterface.__new__(ArmInterface)
+  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
   arm._arm = _FakeDriver()
   return arm
 
