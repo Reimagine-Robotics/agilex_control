@@ -109,14 +109,16 @@ class ArmInterface:
     # inside this wait loop. Confirm whether it is needed in order to obtain
     # firmware when adding Nero support. See:
     # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/pyAgxArm/demos/detect_nero_series.py
-    while self._arm.get_firmware() is None:
+    firmware = self._arm.get_firmware()
+    while firmware is None:
       if time.time() >= deadline:
         self._arm.disconnect()
         raise TimeoutError(
             f"Timed out waiting for firmware on {self._can_port}."
         )
       time.sleep(0.5)
-    software_version = self._arm.get_firmware()["software_version"]
+      firmware = self._arm.get_firmware()
+    software_version = firmware["software_version"]
     self._firmware_version = software_version
 
     firmware_profile = pyAgxArm.resolve_firmware_profile(
