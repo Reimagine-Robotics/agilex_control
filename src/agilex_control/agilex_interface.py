@@ -2,6 +2,7 @@
 
 import enum
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import pyAgxArm
@@ -83,6 +84,9 @@ class ArmInterface:
     # pyAgxArm's driver has no importable public type; set by _connect().
     self._arm: Any = None
     self._firmware_version: str | None = None
+    # Cached per-joint angle limits (static config; read from the arm on first
+    # get_joint_limits, invalidated by set_joint_limits).
+    self._joint_limits: dict[str, list[float]] | None = None
     self._connect(timeout)
 
   def _connect(self, timeout: float) -> None:
@@ -169,3 +173,143 @@ class ArmInterface:
     if msg is None:
       raise RuntimeError("No joint angle feedback available.")
     return list(msg.msg)
+
+  def get_joint_velocities(self) -> list[float]:
+    """
+    Returns the current joint velocities as a sequence of floats (rad/s).
+
+    Returns:
+      Sequence[float]: Joint velocities in radians per second.
+    """
+    states = [
+        self._arm.get_motor_states(i)
+        for i in range(1, self._arm.joint_nums + 1)
+    ]
+    if any(state is None for state in states):
+      raise RuntimeError("No motor state feedback available.")
+    return [state.msg.velocity for state in states]
+
+  def get_joint_limits(self) -> dict[str, list[float]]:
+    """
+    Returns the per-joint angle limits (radians) read from the arm.
+
+    Performs a one-time read from the arm and caches the result (limits are
+    static config); set_joint_limits refreshes the cache.
+
+    Returns:
+      dict[str, list[float]]: A dictionary with 'min' and 'max' keys containing
+    lists of joint limits in radians, e.g. {"min": [...], "max": [...]}.
+    """
+    if self._joint_limits is None:
+      mins: list[float] = []
+      maxs: list[float] = []
+      for i in range(1, self._arm.joint_nums + 1):
+        limit = self._arm.get_joint_angle_vel_limits(i)
+        if limit is None:
+          raise RuntimeError(f"No joint limit feedback for joint {i}.")
+        mins.append(limit.msg.min_angle_limit)
+        maxs.append(limit.msg.max_angle_limit)
+      self._joint_limits = {"min": mins, "max": maxs}
+    return self._joint_limits
+
+  def set_joint_limits(
+      self,
+      min_angles: Sequence[float],
+      max_angles: Sequence[float],
+  ) -> None:
+    """
+    Overrides the arm's per-joint angle limits (radians).
+
+    Both sequences must have length joint_nums. Invalidates the cached limits so
+    the next joint_limits access re-reads them from the arm.
+
+    Args:
+      min_angles (Sequence[float]): Per-joint minimum angle limits in radians.
+      max_angles (Sequence[float]): Per-joint maximum angle limits in radians.
+    """
+    num_joints = self._arm.joint_nums
+    if len(min_angles) != num_joints or len(max_angles) != num_joints:
+      raise ValueError(
+          f"Expected {num_joints} limits, got {len(min_angles)} min /"
+          f" {len(max_angles)} max."
+      )
+    for i, (min_angle, max_angle) in enumerate(
+        zip(min_angles, max_angles), start=1
+    ):
+      self._arm.set_joint_angle_vel_limits(
+          i, min_angle_limit=min_angle, max_angle_limit=max_angle
+      )
+    self._joint_limits = None
+
+  def set_installation_pos(
+      self, installation_pos: ArmInstallationPos = ArmInstallationPos.UPRIGHT
+  ) -> None:
+    """Sets the arm's mounting orientation. Call right after connecting.
+
+    Maps our ArmInstallationPos to pyAgxArm's own installation-pos constants
+    rather than hardcoding its string values.
+    """
+    options = self._arm.OPTIONS.INSTALLATION_POS
+    installation_pos_map = {
+        ArmInstallationPos.UPRIGHT: options.HORIZONTAL,
+        ArmInstallationPos.LEFT: options.LEFT,
+        ArmInstallationPos.RIGHT: options.RIGHT,
+    }
+    self._arm.set_installation_pos(installation_pos_map[installation_pos])
+
+  def set_mit_mode(self) -> None:
+    """Switches the arm to MIT mode for move_mit commands.
+
+    Also disables pyAgxArm's automatic per-call motion-mode frames, so a loop of
+    move_mit calls does not re-send the mode every tick.
+    """
+    self._arm.set_motion_mode(self._arm.OPTIONS.MOTION_MODE.MIT)
+    self._arm.set_auto_set_motion_mode_enabled(False)
+
+  def command_joint_position_mit(
+      self,
+      joint_index: int,
+      *,
+      position: float,
+      kp: float,
+      kd: float,
+      torque_ff: float = 0.0,
+      velocity: float = 0.0,
+  ) -> None:
+    """
+    Commands a single joint via MIT control to a given angle.
+
+    Requires MIT mode (see set_mit_mode). pyAgxArm applies the per-model b/c
+    scaling and the per-firmware wire torque limit internally, so torque_ff is
+    passed as raw physical Nm.
+
+    Args:
+      joint_index (int): Zero-based joint index (0 to joint_nums - 1).
+      position (float): Desired position in radians.
+      kp (float): Proportional gain.
+      kd (float): Derivative gain.
+      torque_ff (float): Feed-forward torque in Nm.
+      velocity (float): Desired velocity in radians per second.
+    """
+    self._arm.move_mit(
+        joint_index + 1,
+        p_des=position,
+        v_des=velocity,
+        kp=kp,
+        kd=kd,
+        t_ff=torque_ff,
+    )
+
+  def command_joint_torque_mit(self, joint_index: int, torque: float) -> None:
+    """
+    Commands a single joint via pure MIT torque (zero PD gains).
+
+    Requires MIT mode (see set_mit_mode).
+
+    Args:
+      joint_index (int): Zero-based joint index (0 to joint_nums - 1).
+      torque (float): The feed-forward torque command in Nm.
+    """
+    self._arm.move_mit(
+        joint_index + 1, p_des=0.0, v_des=0.0, kp=0.0, kd=0.0, t_ff=torque
+    )
