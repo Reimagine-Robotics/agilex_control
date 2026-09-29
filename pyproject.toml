@@ -39,3 +39,9 @@ dev = [
   "pylint>=3.3.8",
   "pytest>=8.0",
 ]
+
+[tool.typos.default.extend-identifiers]
+# pyAgxArm's API misspells this kwarg; accept the exact identifier (bare
+# "firmeware" is still caught). This is typos' documented pattern for API
+# misspellings.
+firmeware_version = "firmeware_version"
