@@ -210,7 +210,11 @@ class ArmInterface:
         mins.append(limit.msg.min_angle_limit)
         maxs.append(limit.msg.max_angle_limit)
       self._joint_limits = {"min": mins, "max": maxs}
-    return self._joint_limits
+    # Return copies so callers can't mutate the cache.
+    return {
+        "min": list(self._joint_limits["min"]),
+        "max": list(self._joint_limits["max"]),
+    }
 
   def set_joint_limits(
       self,
@@ -233,13 +237,15 @@ class ArmInterface:
           f"Expected {num_joints} limits, got {len(min_angles)} min /"
           f" {len(max_angles)} max."
       )
+    # Invalidate the cache before writing, so a mid-loop failure can't leave a
+    # stale cache while the arm has already been partially changed.
+    self._joint_limits = None
     for i, (min_angle, max_angle) in enumerate(
         zip(min_angles, max_angles), start=1
     ):
       self._arm.set_joint_angle_vel_limits(
           i, min_angle_limit=min_angle, max_angle_limit=max_angle
       )
-    self._joint_limits = None
 
   def set_installation_pos(
       self, installation_pos: ArmInstallationPos = ArmInstallationPos.UPRIGHT
