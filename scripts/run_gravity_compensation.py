@@ -56,7 +56,7 @@ def main() -> None:
   parser.add_argument(
       "--damping",
       type=float,
-      default=0.5,
+      default=0.018,
       help="Velocity damping gain for stability, Nm per rad/s.",
   )
   args = parser.parse_args()
