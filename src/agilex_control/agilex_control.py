@@ -8,14 +8,19 @@ AgileX robotic arms. They provide two main benefits:
   position on exit.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import time
 from collections.abc import Sequence
-from typing import Self
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from agilex_control import agilex_interface
+
+if TYPE_CHECKING:
+  from typing import Self
 
 
 @dataclasses.dataclass(frozen=True)
