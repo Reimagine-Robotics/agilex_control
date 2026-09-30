@@ -434,3 +434,7 @@ class ArmInterface:
   def disable_gripper(self) -> None:
     """Disables the gripper. WARNING: it will go limp and may drop its load."""
     self._gripper.disable_gripper()
+
+  @property
+  def arm_type(self) -> ArmType:
+    return self._arm_type

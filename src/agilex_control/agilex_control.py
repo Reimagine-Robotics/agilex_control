@@ -19,14 +19,15 @@ import numpy as np
 from agilex_control import agilex_interface
 
 
-class ArmRestPositions:
-  """
-  Registry of standard rest positions
-  """
-
-  piper: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
-  piper_h: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
-  nero: Sequence[float] = (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
+def _arm_rest_positions(arm_type: agilex_interface.ArmType) -> Sequence[float]:
+  if arm_type == agilex_interface.ArmType.PIPER:
+    return (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  elif arm_type == agilex_interface.ArmType.PIPER_H:
+    return (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  elif arm_type == agilex_interface.ArmType.NERO:
+    return (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
+  else:
+    return None
 
 
 # Default gripper force in Newtons.
@@ -65,7 +66,6 @@ class MitJointPositionController:
       arm: agilex_interface.ArmInterface,
       kp_gains: Sequence[float] | float,
       kd_gains: Sequence[float] | float,
-      rest_position: Sequence[float] | None = ArmRestPositions.piper,
   ):
     """Controller constructor.
 
@@ -98,7 +98,7 @@ class MitJointPositionController:
     if any(d < _MIN_KD_GAIN or d > _MAX_KD_GAIN for d in self._kd_gains):
       raise ValueError(f"KD gains outside valid range: {self._kd_gains}")
 
-    self._rest_position = rest_position
+    self._rest_position = _arm_rest_positions(arm_type=arm.arm_type)
     # Read the limits once now to warm the interface's cache and fail fast if
     # they are unavailable. command_joints re-reads them (cheaply, from that
     # cache) so a later set_joint_limits is always reflected.
