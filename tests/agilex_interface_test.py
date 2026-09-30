@@ -7,6 +7,8 @@ the per-argument values.
 
 # pylint: disable=protected-access
 
+import types
+
 from agilex_control import agilex_interface
 
 
@@ -69,3 +71,52 @@ def test_command_joint_torque_mit_maps_to_move_mit():
           "t_ff": 2.5,
       }
   ]
+
+
+class _FakeGripper:
+  """Fake effector recording move_gripper_m and returning canned feedback."""
+
+  def __init__(self, position=0.03, force=1.5, max_opening=0.08):
+    self._position = position
+    self._force = force
+    self._max_opening = max_opening
+    self.move_calls = []
+
+  def move_gripper_m(self, value=0.0, force=1.0):
+    """Record a gripper move."""
+    self.move_calls.append((value, force))
+
+  def get_gripper_status(self):
+    """Return canned (position, force) feedback, shaped like pyAgxArm's."""
+    return types.SimpleNamespace(
+        msg=types.SimpleNamespace(value=self._position, force=self._force)
+    )
+
+  def get_gripper_teaching_pendant_param(self, timeout=1.0, min_interval=1.0):
+    """Return the canned configured max range."""
+    del timeout, min_interval
+    return types.SimpleNamespace(
+        msg=types.SimpleNamespace(max_range_config=self._max_opening)
+    )
+
+
+def _interface_with_fake_gripper(gripper) -> agilex_interface.ArmInterface:
+  """Build an ArmInterface without connecting, backed by a fake gripper."""
+  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
+  arm._gripper = gripper
+  arm._gripper_max_opening = None
+  return arm
+
+
+def test_command_gripper_clips_position_to_max_opening():
+  gripper = _FakeGripper(max_opening=0.08)
+  arm = _interface_with_fake_gripper(gripper)
+  arm.command_gripper(position=0.2, force=1.0)  # exceeds the 0.08 max
+  assert gripper.move_calls == [(0.08, 1.0)]
+
+
+def test_command_gripper_none_keeps_current_position_and_force():
+  gripper = _FakeGripper(position=0.03, force=1.5)
+  arm = _interface_with_fake_gripper(gripper)
+  arm.command_gripper(position=None, force=None)
+  assert gripper.move_calls == [(0.03, 1.5)]

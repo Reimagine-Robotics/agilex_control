@@ -81,6 +81,9 @@ class ArmOrientations:
     )
 
 
+# Default gripper force in Newtons.
+DEFAULT_GRIPPER_FORCE = 1.0
+
 # Control rate in Hz. Frequency at which to send joint commands to the robot.
 _CONTROL_RATE = 200.0
 
@@ -329,3 +332,41 @@ class MitJointPositionController:
       time.sleep(1.0 / _CONTROL_RATE)
 
     return False
+
+
+class GripperController:
+  """Gripper controller."""
+
+  def __init__(self, arm: agilex_interface.ArmInterface):
+    self._arm = arm
+
+  def __enter__(self) -> "GripperController":
+    self.start()
+    return self
+
+  def __exit__(self, exit_type, value, traceback) -> None:
+    del exit_type, value, traceback
+    self.stop()
+
+  def start(self) -> None:
+    pass
+
+  def stop(self) -> None:
+    pass
+
+  def command_open(self) -> None:
+    """Opens the gripper fully (to its max opening)."""
+    self.command_position(self._arm.get_gripper_max_opening())
+
+  def command_close(self) -> None:
+    """Closes the gripper fully."""
+    self.command_position(0.0)
+
+  def command_position(
+      self, target: float, force: float = DEFAULT_GRIPPER_FORCE
+  ) -> None:
+    """Commands the gripper to an opening in metres with a force in Newtons.
+
+    The interface clips the opening to [0, get_gripper_max_opening()].
+    """
+    self._arm.command_gripper(position=target, force=force)
