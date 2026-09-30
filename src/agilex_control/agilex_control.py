@@ -19,10 +19,13 @@ import numpy as np
 from agilex_control import agilex_interface
 
 
-def _arm_rest_positions(arm_type: agilex_interface.ArmType) -> Sequence[float]:
-  if arm_type == agilex_interface.ArmType.PIPER:
-    return (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
-  elif arm_type == agilex_interface.ArmType.PIPER_H:
+def _arm_rest_positions(
+    arm_type: agilex_interface.ArmType,
+) -> Sequence[float] | None:
+  if (
+      arm_type == agilex_interface.ArmType.PIPER
+      or arm_type == agilex_interface.ArmType.PIPER_H
+  ):
     return (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
   elif arm_type == agilex_interface.ArmType.NERO:
     return (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
