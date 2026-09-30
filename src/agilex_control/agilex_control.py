@@ -26,6 +26,7 @@ class ArmRestPositions:
   """
 
   piper: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  piper_h: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
   nero: Sequence[float] = (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
 
 # Default gripper force in Newtons.
