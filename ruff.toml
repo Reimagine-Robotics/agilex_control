@@ -18,6 +18,13 @@ extend-select = [
   # Ruff-specific rules
   "RUF",
 ]
+ignore = [
+  # PYI034 wants __enter__/__aenter__ to return `Self`, but `typing.Self` is
+  # 3.11+ and we support 3.10 without adding typing_extensions. A string
+  # forward-ref return annotation (e.g. -> "MitJointPositionController") is the
+  # portable, introspection-safe alternative, so we opt out of this rule.
+  "PYI034",
+]
 
 [lint.pydocstyle]
 convention = "google"
