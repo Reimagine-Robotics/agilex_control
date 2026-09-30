@@ -74,8 +74,12 @@ def main() -> None:
         "disabling gripper and arm. WARNING: the arm will power off and drop."
     )
     try:
-      arm.disable_gripper()
-      arm.disable_arm()
+      # Nest so a gripper-disable failure can't skip the arm disable (leaving
+      # the joint motors enabled), and disconnect always runs.
+      try:
+        arm.disable_gripper()
+      finally:
+        arm.disable_arm()
     finally:
       arm.disconnect()
     print("done. exiting.")

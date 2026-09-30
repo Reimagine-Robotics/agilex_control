@@ -4,8 +4,11 @@ These controllers are provided as a convenient high-level way of controlling the
 AgileX robotic arms. They provide two main benefits:
 - a simplified usage interface that hides much of the underlying pyAgxArm
   complexity,
-- a context manager (or an explicit stop()) that parks the arm in a safe rest
-  position on exit.
+- a context manager (or an explicit stop()) for lifecycle management. For
+  MitJointPositionController, stop() parks the arm in a safe rest position and
+  relaxes it on exit; GripperController's start()/stop() are no-ops (the caller
+  disables the gripper explicitly), so its context manager is only for API
+  consistency.
 """
 
 import dataclasses

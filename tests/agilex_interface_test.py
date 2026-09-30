@@ -9,6 +9,8 @@ the per-argument values.
 
 import types
 
+import pytest
+
 from agilex_control import agilex_interface
 
 
@@ -76,10 +78,11 @@ def test_command_joint_torque_mit_maps_to_move_mit():
 class _FakeGripper:
   """Fake effector recording move_gripper_m and returning canned feedback."""
 
-  def __init__(self, position=0.03, force=1.5, max_opening=0.08):
+  def __init__(self, position=0.03, force=1.5, max_opening=0.08, mode="width"):
     self._position = position
     self._force = force
     self._max_opening = max_opening
+    self._mode = mode
     self.move_calls = []
 
   def move_gripper_m(self, value=0.0, force=1.0):
@@ -87,9 +90,11 @@ class _FakeGripper:
     self.move_calls.append((value, force))
 
   def get_gripper_status(self):
-    """Return canned (position, force) feedback, shaped like pyAgxArm's."""
+    """Return canned (position, force, mode) feedback like pyAgxArm's."""
     return types.SimpleNamespace(
-        msg=types.SimpleNamespace(value=self._position, force=self._force)
+        msg=types.SimpleNamespace(
+            value=self._position, force=self._force, mode=self._mode
+        )
     )
 
   def get_gripper_teaching_pendant_param(self, timeout=1.0, min_interval=1.0):
@@ -120,3 +125,10 @@ def test_command_gripper_none_keeps_current_position_and_force():
   arm = _interface_with_fake_gripper(gripper)
   arm.command_gripper(position=None, force=None)
   assert gripper.move_calls == [(0.03, 1.5)]
+
+
+def test_get_gripper_state_raises_in_angle_mode():
+  # We only support width mode; angle mode would report degrees, not metres.
+  arm = _interface_with_fake_gripper(_FakeGripper(mode="angle"))
+  with pytest.raises(RuntimeError):
+    arm.get_gripper_state()

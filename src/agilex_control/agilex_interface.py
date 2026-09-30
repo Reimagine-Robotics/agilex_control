@@ -389,11 +389,21 @@ class ArmInterface:
       tuple[float, float]: (gripper position, gripper force)
 
     Raises:
-      RuntimeError: If no gripper feedback is available.
+      RuntimeError: If no gripper feedback is available, or the gripper is in
+        angle mode (we only command width mode, so its value would be degrees,
+        not metres).
     """
     status = self._gripper.get_gripper_status()
     if status is None:
       raise RuntimeError("No gripper feedback available.")
+    # We only ever command via move_gripper_m (width mode), so value is in
+    # metres. Fail loudly rather than silently treat an angle (degrees) as
+    # metres if the gripper is somehow in angle mode.
+    if status.msg.mode != "width":
+      raise RuntimeError(
+          f"Gripper is in {status.msg.mode!r} mode; only width mode "
+          "(metres) is supported."
+      )
     return status.msg.value, status.msg.force
 
   def command_gripper(
