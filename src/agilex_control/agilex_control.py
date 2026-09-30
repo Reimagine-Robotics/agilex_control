@@ -66,7 +66,7 @@ class MitJointPositionController:
         arm: agilex_interface.ArmInterface,
         kp_gains: Sequence[float] | float,
         kd_gains: Sequence[float] | float,
-        rest_position: Sequence[float] | None = ArmRestPositions.piper.rest_position,
+        rest_position: Sequence[float] | None = ArmRestPositions.piper,
     ):
         """Controller constructor.
 

@@ -54,7 +54,7 @@ _ARM_MODEL = {
     ArmType.PIPER_H: pyAgxArm.ArmModel.PIPER_H,
     ArmType.PIPER_X: pyAgxArm.ArmModel.PIPER_X,
     ArmType.PIPER_L: pyAgxArm.ArmModel.PIPER_L,
-    ArmType.NERO: pyAgxArm.ArmModel.Nero,
+    ArmType.NERO: pyAgxArm.ArmModel.NERO,
 }
 
 # create_agx_arm_config's default driver profile. resolve_firmware_profile
