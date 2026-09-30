@@ -110,3 +110,24 @@ def test_rejects_out_of_range_gains():
     agilex_control.MitJointPositionController(
         arm, kp_gains=5.0, kd_gains=10.0
     )  # kd > 5
+
+
+def test_move_to_position_returns_true_when_reached():
+  arm = _FakeArm()  # get_joint_positions reports a stationary [0]*6 pose.
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+  )
+  reached = controller.move_to_position([0.0] * 6, threshold=0.1, timeout=1.0)
+  assert reached
+  assert len(arm.position_cmds) >= 1
+
+
+def test_move_to_position_returns_false_on_timeout():
+  arm = (
+      _FakeArm()
+  )  # Always reports [0]*6, so a nonzero target is never reached.
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+  )
+  reached = controller.move_to_position([1.0] * 6, threshold=0.01, timeout=0.05)
+  assert not reached

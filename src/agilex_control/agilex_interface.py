@@ -148,6 +148,17 @@ class ArmInterface:
     if self._arm is not None:
       self._arm.disconnect()
 
+  def enable_arm(self) -> bool:
+    """Enables all joint motors, returning whether they report enabled."""
+    return self._arm.enable()
+
+  def disable_arm(self) -> bool:
+    """Disables all joint motors, returning whether they report disabled.
+
+    WARNING: this powers down the joints; an unsupported arm will drop.
+    """
+    return self._arm.disable()
+
   def get_firmware_version(self) -> str | None:
     """Return the arm's firmware version, normalized (e.g. "1.8.post6").
 
