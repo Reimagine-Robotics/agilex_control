@@ -7,11 +7,13 @@ robot.
 
 import pytest
 
-from agilex_control import agilex_control
+from agilex_control import agilex_control, agilex_interface
 
 
 class _FakeArm:
   """Records the interface calls the controller makes."""
+
+  arm_type = agilex_interface.ArmType.PIPER
 
   def __init__(self, limits=None):
     self._limits = limits or {"min": [-2.0] * 6, "max": [2.0] * 6}
@@ -76,7 +78,7 @@ def test_context_manager_starts_and_stops():
 def test_command_joints_clips_to_limits_and_forwards():
   arm = _FakeArm(limits={"min": [-1.0] * 6, "max": [1.0] * 6})
   controller = agilex_control.MitJointPositionController(
-      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+      arm, kp_gains=5.0, kd_gains=0.8
   )
   # J1/J2 targets exceed the ±1.0 limits and should be clipped; J3 is in range.
   controller.command_joints(
@@ -94,7 +96,7 @@ def test_command_joints_clips_to_limits_and_forwards():
 def test_command_torques_forwards_non_none_only():
   arm = _FakeArm()
   controller = agilex_control.MitJointPositionController(
-      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+      arm, kp_gains=5.0, kd_gains=0.8
   )
   controller.command_torques([1.0, None, 2.0, None, None, 3.0])
   assert arm.torque_cmds == [(0, 1.0), (2, 2.0), (5, 3.0)]
@@ -115,7 +117,7 @@ def test_rejects_out_of_range_gains():
 def test_move_to_position_returns_true_when_reached():
   arm = _FakeArm()  # get_joint_positions reports a stationary [0]*6 pose.
   controller = agilex_control.MitJointPositionController(
-      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+      arm, kp_gains=5.0, kd_gains=0.8
   )
   reached = controller.move_to_position([0.0] * 6, threshold=0.1, timeout=1.0)
   assert reached
@@ -127,7 +129,7 @@ def test_move_to_position_returns_false_on_timeout():
       _FakeArm()
   )  # Always reports [0]*6, so a nonzero target is never reached.
   controller = agilex_control.MitJointPositionController(
-      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+      arm, kp_gains=5.0, kd_gains=0.8
   )
   reached = controller.move_to_position([1.0] * 6, threshold=0.01, timeout=0.05)
   assert not reached
@@ -163,7 +165,7 @@ def test_move_to_position_retries_through_gap_then_converges():
       ]
   )
   controller = agilex_control.MitJointPositionController(
-      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+      arm, kp_gains=5.0, kd_gains=0.8
   )
   reached = controller.move_to_position(target, threshold=0.01, timeout=5.0)
   assert reached
