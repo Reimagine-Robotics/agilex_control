@@ -240,8 +240,8 @@ class MitJointPositionController:
     """
     assert len(target) == self._num_joints
 
-    start_time = time.time()
-    while time.time() - start_time < timeout:
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
       self.command_joints(target)
       try:
         cur_joints = self._arm.get_joint_positions()

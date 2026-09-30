@@ -33,15 +33,25 @@ def main() -> None:
     # Enable the motors, retrying until they report enabled. The robust enable
     # loop will move to agilex_init once it is ported (mirroring piper_init).
     print("enabling arm")
-    deadline = time.time() + 5.0
+    deadline = time.monotonic() + 5.0
     while not arm.enable_arm():
-      if time.time() >= deadline:
+      if time.monotonic() >= deadline:
         raise TimeoutError("Timed out enabling the arm.")
       time.sleep(0.1)
 
-    # The enable loop above has confirmed feedback is flowing, so the current
-    # pose is available to nudge from.
-    target = arm.get_joint_positions()
+    # Read the starting pose to nudge from. enable_arm() can report enabled
+    # before the first joint-angle frame arrives (they are separate CAN
+    # messages), so get_joint_positions can briefly raise; retry until feedback
+    # is available.
+    deadline = time.monotonic() + 5.0
+    while True:
+      try:
+        target = arm.get_joint_positions()
+        break
+      except RuntimeError:
+        if time.monotonic() >= deadline:
+          raise
+        time.sleep(0.05)
     target[-2] += _MOVE_DELTA
 
     with agilex_control.MitJointPositionController(
@@ -53,8 +63,10 @@ def main() -> None:
     # Leaving the controller context parks the arm at its rest pose and relaxes.
   finally:
     print("disabling arm. WARNING: it will power off and may drop.")
-    arm.disable_arm()
-    arm.disconnect()
+    try:
+      arm.disable_arm()
+    finally:
+      arm.disconnect()
     print("done. exiting.")
 
 

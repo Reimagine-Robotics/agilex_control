@@ -131,3 +131,41 @@ def test_move_to_position_returns_false_on_timeout():
   )
   reached = controller.move_to_position([1.0] * 6, threshold=0.01, timeout=0.05)
   assert not reached
+
+
+class _ScriptedPoseArm(_FakeArm):
+  """A fake arm whose reported pose follows a scripted sequence.
+
+  Each get_joint_positions call returns the next pose in the sequence; a None
+  entry raises RuntimeError, standing in for a startup feedback gap.
+  """
+
+  def __init__(self, reads):
+    super().__init__()
+    self._reads = list(reads)
+
+  def get_joint_positions(self):
+    """Return the next scripted pose, or raise for a None (feedback gap)."""
+    reading = self._reads.pop(0) if self._reads else None
+    if reading is None:
+      raise RuntimeError("No joint angle feedback available.")
+    return reading
+
+
+def test_move_to_position_retries_through_gap_then_converges():
+  target = [0.5] * 6
+  arm = _ScriptedPoseArm(
+      reads=[
+          None,  # feedback gap: should retry rather than give up
+          [0.0] * 6,  # far from the target
+          [0.25] * 6,  # closer
+          [0.5] * 6,  # reached
+      ]
+  )
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8, rest_position=None
+  )
+  reached = controller.move_to_position(target, threshold=0.01, timeout=5.0)
+  assert reached
+  # It kept commanding the target through the gap and intermediate poses.
+  assert len(arm.position_cmds) >= 12
