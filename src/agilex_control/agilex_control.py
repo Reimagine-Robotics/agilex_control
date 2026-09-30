@@ -222,6 +222,41 @@ class MitJointPositionController:
           velocity=velocities[ji],
       )
 
+  def move_to_position(
+      self,
+      target: Sequence[float],
+      threshold: Sequence[float] | float = 0.001,
+      timeout: float = 1.0,
+  ) -> bool:
+    """Moves the arm to a target pose. This is a blocking call.
+
+    Args:
+      target: Joint angles (radians) to move the arm to.
+      threshold: Error threshold for when we consider the target reached.
+      timeout: Timeout in seconds, after which we stop blocking.
+
+    Returns:
+      Whether the target pose was reached (error within threshold).
+    """
+    assert len(target) == self._num_joints
+
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
+      self.command_joints(target)
+      try:
+        cur_joints = self._arm.get_joint_positions()
+      except RuntimeError:
+        # No feedback yet; keep commanding and check again next tick.
+        time.sleep(1.0 / _CONTROL_RATE)
+        continue
+
+      if _joints_within_target_threshold(cur_joints, target, threshold):
+        return True
+
+      time.sleep(1.0 / _CONTROL_RATE)
+
+    return False
+
   def relax_joints(self, timeout: float) -> None:
     """Relaxes joints, using MIT mode, over a number of seconds.
 
