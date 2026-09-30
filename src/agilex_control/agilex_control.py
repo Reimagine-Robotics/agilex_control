@@ -20,69 +20,13 @@ import numpy as np
 from agilex_control import agilex_interface
 
 
-@dataclasses.dataclass(frozen=True)
-class ArmOrientation:
-  """Represents an arm mounting orientation with associated data."""
-
-  name: str
-  rest_position: tuple[float, ...]  # Joint angles in radians
-  mounting_quaternion: tuple[float, float, float, float]  # [w, i, j, k]
-
-
-# TODO: Need to add 7 joint versions of these for Nero.
-@dataclasses.dataclass(frozen=True)
-class ArmOrientations:
-  """Registry of standard arm orientations.
-
-  Coordinate system: Default upright arm has +x forward, +y left, +z up.
+class ArmRestPositions:
+  """
+  Registry of standard rest positions
   """
 
-  upright: ArmOrientation = ArmOrientation(
-      name="upright",
-      rest_position=(0.0, 0.0, 0.0, 0.02, 0.5, 0.0),
-      mounting_quaternion=(1.0, 0.0, 0.0, 0.0),  # Identity - no rotation
-  )
-
-  left: ArmOrientation = ArmOrientation(
-      name="left",
-      rest_position=(1.71, 2.96, -2.65, 1.41, -0.081, -0.190),
-      mounting_quaternion=(0.7071068, -0.7071068, 0.0, 0.0),  # -90 deg around X
-  )
-
-  right: ArmOrientation = ArmOrientation(
-      name="right",
-      rest_position=(-1.66, 2.91, -2.74, 0.0545, -0.271, 0.0979),
-      mounting_quaternion=(0.7071068, 0.7071068, 0.0, 0.0),  # +90 deg around X
-  )
-
-  @classmethod
-  def from_string(cls, orientation_name: str) -> ArmOrientation:
-    """Get ArmOrientation instance from string name.
-
-    Args:
-      orientation_name: Name of the orientation ('upright', 'left', 'right').
-
-    Returns:
-      ArmOrientation instance.
-
-    Raises:
-      ValueError: If orientation_name is not recognized.
-    """
-    orientation_name = orientation_name.lower()
-    for orientation in cls.__dict__.values():
-      if (
-          isinstance(orientation, ArmOrientation)
-          and orientation.name.lower() == orientation_name
-      ):
-        return orientation
-
-    available = [
-        o.name for o in cls.__dict__.values() if isinstance(o, ArmOrientation)
-    ]
-    raise ValueError(
-        f"Unknown arm orientation: {orientation_name}. Available: {available}"
-    )
-
+  piper: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  nero: Sequence[float] = (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
 
 # Default gripper force in Newtons.
 DEFAULT_GRIPPER_FORCE = 1.0
@@ -122,7 +66,7 @@ class MitJointPositionController:
       kd_gains: Sequence[float] | float,
       rest_position: (
           Sequence[float] | None
-      ) = ArmOrientations.upright.rest_position,
+      ) = ArmRestPositions.piper.rest_position,
   ):
     """Controller constructor.
 

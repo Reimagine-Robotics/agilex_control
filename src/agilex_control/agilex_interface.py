@@ -16,6 +16,7 @@ class ArmType(enum.Enum):
   PIPER_H = "Piper H"
   PIPER_X = "Piper X"
   PIPER_L = "Piper L"
+  NERO = "Nero"
 
 
 class GripperType(enum.Enum):
@@ -53,6 +54,7 @@ _ARM_MODEL = {
     ArmType.PIPER_H: pyAgxArm.ArmModel.PIPER_H,
     ArmType.PIPER_X: pyAgxArm.ArmModel.PIPER_X,
     ArmType.PIPER_L: pyAgxArm.ArmModel.PIPER_L,
+    ArmType.NERO: pyAgxArm.ArmModel.Nero
 }
 
 # create_agx_arm_config's default driver profile. resolve_firmware_profile
