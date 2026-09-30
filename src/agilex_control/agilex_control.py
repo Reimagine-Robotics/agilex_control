@@ -76,9 +76,6 @@ class MitJointPositionController:
       arm: The arm interface.
       kp_gains: Either one p-gain per joint, or a single shared p-gain.
       kd_gains: Either one d-gain per joint, or a single shared d-gain.
-      rest_position: An optional per-joint set of angles in radians that the
-        robot will go to upon stopping. If None, the rest behaviour is not
-        executed.
     """
     self._arm = arm
     self._num_joints = arm.get_num_joints()
