@@ -21,14 +21,13 @@ from agilex_control import agilex_interface
 
 
 class ArmRestPositions:
-    """
-    Registry of standard rest positions
-    """
+  """
+  Registry of standard rest positions
+  """
 
-    piper: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
-    piper_h: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
-    nero: Sequence[float] = (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
-
+  piper: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  piper_h: Sequence[float] = (0.0, 0.0, 0.0, 0.02, 0.5, 0.0)
+  nero: Sequence[float] = (0.003, -1.767, -0.044, 2.197, 0.048, 0.071, 1.697)
 
 # Default gripper force in Newtons.
 DEFAULT_GRIPPER_FORCE = 1.0
@@ -49,269 +48,273 @@ def _joints_within_target_threshold(
     target: Sequence[float],
     threshold: Sequence[float] | float = 0.001,
 ) -> bool:
-    assert len(cur_joints) == len(target)
-    diffs = np.abs(np.array(cur_joints) - np.array(target))
-    return bool(np.all(diffs < np.array(threshold)))
+  assert len(cur_joints) == len(target)
+  diffs = np.abs(np.array(cur_joints) - np.array(target))
+  return bool(np.all(diffs < np.array(threshold)))
 
 
 class MitJointPositionController:
-    """Joint position controller that uses MIT-mode commands.
+  """Joint position controller that uses MIT-mode commands.
 
-    By using MIT mode we can specify the P and D gains for the underlying
-    controller.
+  By using MIT mode we can specify the P and D gains for the underlying
+  controller.
+  """
+
+  def __init__(
+      self,
+      arm: agilex_interface.ArmInterface,
+      kp_gains: Sequence[float] | float,
+      kd_gains: Sequence[float] | float,
+      rest_position: (
+          Sequence[float] | None
+      ) = ArmRestPositions.piper,
+  ):
+    """Controller constructor.
+
+    Args:
+      arm: The arm interface.
+      kp_gains: Either one p-gain per joint, or a single shared p-gain.
+      kd_gains: Either one d-gain per joint, or a single shared d-gain.
+      rest_position: An optional per-joint set of angles in radians that the
+        robot will go to upon stopping. If None, the rest behaviour is not
+        executed.
     """
+    self._arm = arm
+    self._num_joints = arm.get_num_joints()
 
-    def __init__(
-        self,
-        arm: agilex_interface.ArmInterface,
-        kp_gains: Sequence[float] | float,
-        kd_gains: Sequence[float] | float,
-        rest_position: Sequence[float] | None = ArmRestPositions.piper,
-    ):
-        """Controller constructor.
+    if isinstance(kp_gains, (int, float)):
+      self._kp_gains = (float(kp_gains),) * self._num_joints
+    else:
+      self._kp_gains = tuple(kp_gains)
+      assert len(self._kp_gains) == self._num_joints
 
-        Args:
-          arm: The arm interface.
-          kp_gains: Either one p-gain per joint, or a single shared p-gain.
-          kd_gains: Either one d-gain per joint, or a single shared d-gain.
-          rest_position: An optional per-joint set of angles in radians that the
-            robot will go to upon stopping. If None, the rest behaviour is not
-            executed.
-        """
-        self._arm = arm
-        self._num_joints = arm.get_num_joints()
+    if isinstance(kd_gains, (int, float)):
+      self._kd_gains = (float(kd_gains),) * self._num_joints
+    else:
+      self._kd_gains = tuple(kd_gains)
+      assert len(self._kd_gains) == self._num_joints
 
-        if isinstance(kp_gains, (int, float)):
-            self._kp_gains = (float(kp_gains),) * self._num_joints
-        else:
-            self._kp_gains = tuple(kp_gains)
-            assert len(self._kp_gains) == self._num_joints
+    if any(p < _MIN_KP_GAIN or p > _MAX_KP_GAIN for p in self._kp_gains):
+      raise ValueError(f"KP gains outside valid range: {self._kp_gains}")
 
-        if isinstance(kd_gains, (int, float)):
-            self._kd_gains = (float(kd_gains),) * self._num_joints
-        else:
-            self._kd_gains = tuple(kd_gains)
-            assert len(self._kd_gains) == self._num_joints
+    if any(d < _MIN_KD_GAIN or d > _MAX_KD_GAIN for d in self._kd_gains):
+      raise ValueError(f"KD gains outside valid range: {self._kd_gains}")
 
-        if any(p < _MIN_KP_GAIN or p > _MAX_KP_GAIN for p in self._kp_gains):
-            raise ValueError(f"KP gains outside valid range: {self._kp_gains}")
+    self._rest_position = rest_position
+    # Read the limits once now to warm the interface's cache and fail fast if
+    # they are unavailable. command_joints re-reads them (cheaply, from that
+    # cache) so a later set_joint_limits is always reflected.
+    arm.get_joint_limits()
 
-        if any(d < _MIN_KD_GAIN or d > _MAX_KD_GAIN for d in self._kd_gains):
-            raise ValueError(f"KD gains outside valid range: {self._kd_gains}")
+  def __enter__(self) -> "MitJointPositionController":
+    self.start()
+    return self
 
-        self._rest_position = rest_position
-        # Read the limits once now to warm the interface's cache and fail fast if
-        # they are unavailable. command_joints re-reads them (cheaply, from that
-        # cache) so a later set_joint_limits is always reflected.
-        arm.get_joint_limits()
+  def __exit__(self, exit_type, value, traceback) -> None:
+    del exit_type, value, traceback
+    self.stop()
 
-    def __enter__(self) -> "MitJointPositionController":
-        self.start()
-        return self
+  def start(self) -> None:
+    self._arm.set_mit_mode()
 
-    def __exit__(self, exit_type, value, traceback) -> None:
-        del exit_type, value, traceback
-        self.stop()
+  def stop(self) -> None:
+    # Move to the rest position if one is specified.
+    if self._rest_position:
+      self._smoothly_move_to_position(
+          self._rest_position,
+          threshold=0.1,  # No need to be precise.
+          timeout=2.0,
+      )
 
-    def start(self) -> None:
-        self._arm.set_mit_mode()
+    # Over a few seconds relax all of the joints.
+    self.relax_joints(2.0)
 
-    def stop(self) -> None:
-        # Move to the rest position if one is specified.
-        if self._rest_position:
-            self._smoothly_move_to_position(
-                self._rest_position,
-                threshold=0.1,  # No need to be precise.
-                timeout=2.0,
-            )
+  def command_joints(
+      self,
+      target: Sequence[float],
+      kp_gains: Sequence[float] | None = None,
+      kd_gains: Sequence[float] | None = None,
+      torques_ff: Sequence[float] | None = None,
+      velocities: Sequence[float] | None = None,
+  ) -> None:
+    if kp_gains is None or len(kp_gains) == 0:
+      kp_gains = self._kp_gains
+    if kd_gains is None or len(kd_gains) == 0:
+      kd_gains = self._kd_gains
+    if torques_ff is None or len(torques_ff) == 0:
+      torques_ff = (0.0,) * self._num_joints
+    if velocities is None or len(velocities) == 0:
+      velocities = (0.0,) * self._num_joints
 
-        # Over a few seconds relax all of the joints.
-        self.relax_joints(2.0)
+    assert len(target) == self._num_joints
+    assert len(kp_gains) == self._num_joints
+    assert len(kd_gains) == self._num_joints
+    assert len(torques_ff) == self._num_joints
+    assert len(velocities) == self._num_joints
 
-    def command_joints(
-        self,
-        target: Sequence[float],
-        kp_gains: Sequence[float] | None = None,
-        kd_gains: Sequence[float] | None = None,
-        torques_ff: Sequence[float] | None = None,
-        velocities: Sequence[float] | None = None,
-    ) -> None:
-        if kp_gains is None or len(kp_gains) == 0:
-            kp_gains = self._kp_gains
-        if kd_gains is None or len(kd_gains) == 0:
-            kd_gains = self._kd_gains
-        if torques_ff is None or len(torques_ff) == 0:
-            torques_ff = (0.0,) * self._num_joints
-        if velocities is None or len(velocities) == 0:
-            velocities = (0.0,) * self._num_joints
+    # Re-read the limits each call (cheaply, interface-cached) so a later
+    # set_joint_limits is reflected rather than going stale.
+    joint_limits = self._arm.get_joint_limits()
 
-        assert len(target) == self._num_joints
-        assert len(kp_gains) == self._num_joints
-        assert len(kd_gains) == self._num_joints
-        assert len(torques_ff) == self._num_joints
-        assert len(velocities) == self._num_joints
+    for ji, pos in enumerate(target):
+      # Clip the position to limits so we don't send invalid commands.
+      min_rad = joint_limits["min"][ji]
+      max_rad = joint_limits["max"][ji]
+      pos = min(max(pos, min_rad), max_rad)
 
-        # Re-read the limits each call (cheaply, interface-cached) so a later
-        # set_joint_limits is reflected rather than going stale.
-        joint_limits = self._arm.get_joint_limits()
+      # pyAgxArm applies the per-model/firmware torque scaling and limit
+      # internally, so torque_ff is passed through as raw physical Nm.
+      self._arm.command_joint_position_mit(
+          ji,
+          position=pos,
+          kp=kp_gains[ji],
+          kd=kd_gains[ji],
+          torque_ff=torques_ff[ji],
+          velocity=velocities[ji],
+      )
 
-        for ji, pos in enumerate(target):
-            # Clip the position to limits so we don't send invalid commands.
-            min_rad = joint_limits["min"][ji]
-            max_rad = joint_limits["max"][ji]
-            pos = min(max(pos, min_rad), max_rad)
+  def move_to_position(
+      self,
+      target: Sequence[float],
+      threshold: Sequence[float] | float = 0.001,
+      timeout: float = 1.0,
+  ) -> bool:
+    """Moves the arm to a target pose. This is a blocking call.
 
-            # pyAgxArm applies the per-model/firmware torque scaling and limit
-            # internally, so torque_ff is passed through as raw physical Nm.
-            self._arm.command_joint_position_mit(
-                ji,
-                position=pos,
-                kp=kp_gains[ji],
-                kd=kd_gains[ji],
-                torque_ff=torques_ff[ji],
-                velocity=velocities[ji],
-            )
+    Args:
+      target: Joint angles (radians) to move the arm to.
+      threshold: Error threshold for when we consider the target reached.
+      timeout: Timeout in seconds, after which we stop blocking.
 
-    def move_to_position(
-        self,
-        target: Sequence[float],
-        threshold: Sequence[float] | float = 0.001,
-        timeout: float = 1.0,
-    ) -> bool:
-        """Moves the arm to a target pose. This is a blocking call.
+    Returns:
+      Whether the target pose was reached (error within threshold).
+    """
+    assert len(target) == self._num_joints
 
-        Args:
-          target: Joint angles (radians) to move the arm to.
-          threshold: Error threshold for when we consider the target reached.
-          timeout: Timeout in seconds, after which we stop blocking.
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
+      self.command_joints(target)
+      try:
+        cur_joints = self._arm.get_joint_positions()
+      except RuntimeError:
+        # No feedback yet; keep commanding and check again next tick.
+        time.sleep(1.0 / _CONTROL_RATE)
+        continue
 
-        Returns:
-          Whether the target pose was reached (error within threshold).
-        """
-        assert len(target) == self._num_joints
+      if _joints_within_target_threshold(cur_joints, target, threshold):
+        return True
 
-        start_time = time.monotonic()
-        while time.monotonic() - start_time < timeout:
-            self.command_joints(target)
-            try:
-                cur_joints = self._arm.get_joint_positions()
-            except RuntimeError:
-                # No feedback yet; keep commanding and check again next tick.
-                time.sleep(1.0 / _CONTROL_RATE)
-                continue
+      time.sleep(1.0 / _CONTROL_RATE)
 
-            if _joints_within_target_threshold(cur_joints, target, threshold):
-                return True
+    return False
 
-            time.sleep(1.0 / _CONTROL_RATE)
+  def relax_joints(self, timeout: float) -> None:
+    """Relaxes joints, using MIT mode, over a number of seconds.
 
-        return False
+    This can be useful to "rest" the arm just prior to shutting down.
+    """
+    num_steps = round(timeout * _CONTROL_RATE)
+    kp_gains = np.geomspace(2.0, 0.01, num_steps)
+    kd_gains = np.geomspace(1.0, 0.01, num_steps)
+    num_joints = self._num_joints
 
-    def relax_joints(self, timeout: float) -> None:
-        """Relaxes joints, using MIT mode, over a number of seconds.
+    # Relax by ramping the gains toward zero. last_known holds only an actually
+    # measured position - never an invented one.
+    last_known = None
+    for i in range(num_steps):
+      try:
+        last_known = self._arm.get_joint_positions()
+      except RuntimeError:
+        pass  # reuse the last measured position; a short/stale gap is safe
 
-        This can be useful to "rest" the arm just prior to shutting down.
-        """
-        num_steps = round(timeout * _CONTROL_RATE)
-        kp_gains = np.geomspace(2.0, 0.01, num_steps)
-        kd_gains = np.geomspace(1.0, 0.01, num_steps)
-        num_joints = self._num_joints
+      if last_known is not None:
+        # We know where we are: hold it with the decaying gains.
+        self.command_joints(
+            last_known,
+            kp_gains=[kp_gains[i]] * num_joints,
+            kd_gains=[kd_gains[i]] * num_joints,
+        )
+      else:
+        # Position never measured. Do NOT pull toward any pose: kp=0 removes the
+        # position term (p_des is irrelevant), leaving only kd velocity damping
+        # - a gentle limp - while the gains still ramp to ~0 so nothing snaps on
+        # disable.
+        self.command_joints(
+            [0.0] * num_joints,  # filler; ignored because kp=0
+            kp_gains=[0.0] * num_joints,
+            kd_gains=[kd_gains[i]] * num_joints,
+        )
+      time.sleep(1.0 / _CONTROL_RATE)
 
-        # Relax by ramping the gains toward zero. last_known holds only an actually
-        # measured position - never an invented one.
-        last_known = None
-        for i in range(num_steps):
-            try:
-                last_known = self._arm.get_joint_positions()
-            except RuntimeError:
-                pass  # reuse the last measured position; a short/stale gap is safe
+  def command_torques(self, torques: Sequence[float | None]) -> None:
+    assert len(torques) == self._num_joints
 
-            if last_known is not None:
-                # We know where we are: hold it with the decaying gains.
-                self.command_joints(
-                    last_known,
-                    kp_gains=[kp_gains[i]] * num_joints,
-                    kd_gains=[kd_gains[i]] * num_joints,
-                )
-            else:
-                # Position never measured. Do NOT pull toward any pose: kp=0 removes the
-                # position term (p_des is irrelevant), leaving only kd velocity damping
-                # - a gentle limp - while the gains still ramp to ~0 so nothing snaps on
-                # disable.
-                self.command_joints(
-                    [0.0] * num_joints,  # filler; ignored because kp=0
-                    kp_gains=[0.0] * num_joints,
-                    kd_gains=[kd_gains[i]] * num_joints,
-                )
-            time.sleep(1.0 / _CONTROL_RATE)
+    for ji, torque in enumerate(torques):
+      if torque is not None:
+        self._arm.command_joint_torque_mit(ji, torque)
 
-    def command_torques(self, torques: Sequence[float | None]) -> None:
-        assert len(torques) == self._num_joints
+  def _smoothly_move_to_position(
+      self,
+      target: Sequence[float],
+      threshold: Sequence[float] | float = 0.001,
+      timeout: float = 1.0,
+  ) -> bool:
+    assert len(target) == self._num_joints
 
-        for ji, torque in enumerate(torques):
-            if torque is not None:
-                self._arm.command_joint_torque_mit(ji, torque)
+    ramp_steps = round(timeout * _CONTROL_RATE)
+    p_gains = np.geomspace(0.5, 5.0, ramp_steps)
 
-    def _smoothly_move_to_position(
-        self,
-        target: Sequence[float],
-        threshold: Sequence[float] | float = 0.001,
-        timeout: float = 1.0,
-    ) -> bool:
-        assert len(target) == self._num_joints
+    for step_idx in range(ramp_steps):
+      self.command_joints(
+          target, kp_gains=[p_gains[step_idx]] * self._num_joints
+      )
+      try:
+        cur_joints = self._arm.get_joint_positions()
+      except RuntimeError:
+        time.sleep(1.0 / _CONTROL_RATE)
+        continue
 
-        ramp_steps = round(timeout * _CONTROL_RATE)
-        p_gains = np.geomspace(0.5, 5.0, ramp_steps)
+      if _joints_within_target_threshold(cur_joints, target, threshold):
+        return True
 
-        for step_idx in range(ramp_steps):
-            self.command_joints(target, kp_gains=[p_gains[step_idx]] * self._num_joints)
-            try:
-                cur_joints = self._arm.get_joint_positions()
-            except RuntimeError:
-                time.sleep(1.0 / _CONTROL_RATE)
-                continue
+      time.sleep(1.0 / _CONTROL_RATE)
 
-            if _joints_within_target_threshold(cur_joints, target, threshold):
-                return True
-
-            time.sleep(1.0 / _CONTROL_RATE)
-
-        return False
+    return False
 
 
 class GripperController:
-    """Gripper controller."""
+  """Gripper controller."""
 
-    def __init__(self, arm: agilex_interface.ArmInterface):
-        self._arm = arm
+  def __init__(self, arm: agilex_interface.ArmInterface):
+    self._arm = arm
 
-    def __enter__(self) -> "GripperController":
-        self.start()
-        return self
+  def __enter__(self) -> "GripperController":
+    self.start()
+    return self
 
-    def __exit__(self, exit_type, value, traceback) -> None:
-        del exit_type, value, traceback
-        self.stop()
+  def __exit__(self, exit_type, value, traceback) -> None:
+    del exit_type, value, traceback
+    self.stop()
 
-    def start(self) -> None:
-        pass
+  def start(self) -> None:
+    pass
 
-    def stop(self) -> None:
-        pass
+  def stop(self) -> None:
+    pass
 
-    def command_open(self) -> None:
-        """Opens the gripper fully (to its max opening)."""
-        self.command_position(self._arm.get_gripper_max_opening())
+  def command_open(self) -> None:
+    """Opens the gripper fully (to its max opening)."""
+    self.command_position(self._arm.get_gripper_max_opening())
 
-    def command_close(self) -> None:
-        """Closes the gripper fully."""
-        self.command_position(0.0)
+  def command_close(self) -> None:
+    """Closes the gripper fully."""
+    self.command_position(0.0)
 
-    def command_position(
-        self, target: float, force: float = DEFAULT_GRIPPER_FORCE
-    ) -> None:
-        """Commands the gripper to an opening in metres with a force in Newtons.
+  def command_position(
+      self, target: float, force: float = DEFAULT_GRIPPER_FORCE
+  ) -> None:
+    """Commands the gripper to an opening in metres with a force in Newtons.
 
-        The interface clips the opening to [0, get_gripper_max_opening()].
-        """
-        self._arm.command_gripper(position=target, force=force)
+    The interface clips the opening to [0, get_gripper_max_opening()].
+    """
+    self._arm.command_gripper(position=target, force=force)
