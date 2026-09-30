@@ -60,6 +60,12 @@ _ARM_MODEL = {
 # reconnecting with a firmware-specific driver.
 _DEFAULT_FIRMWARE_PROFILE = "default"
 
+# Max gripper force in Newtons. AgileX's gripper docs give a force range of
+# [0.0, 3.0] N; unlike the max opening, it is not queryable from the arm, so it
+# is a constant here. See get_gripper_status in:
+# https://github.com/agilexrobotics/pyAgxArm/blob/841a625/docs/effector/agx_gripper/agx_gripper_api.md
+_GRIPPER_FORCE_MAX = 3.0
+
 
 class ArmInterface:
   """A thin wrapper around pyAgxArm for a single AgileX arm.
@@ -81,12 +87,17 @@ class ArmInterface:
     self._can_port = can_port
     self._arm_type = arm_type
     self._can_interface = can_interface
-    # pyAgxArm's driver has no importable public type; set by _connect().
+    # pyAgxArm's driver and gripper effector have no importable public type;
+    # both are set by _connect().
     self._arm: Any = None
+    self._gripper: Any = None
     self._firmware_version: str | None = None
     # Cached per-joint angle limits (static config; read from the arm on first
     # get_joint_limits, invalidated by set_joint_limits).
     self._joint_limits: dict[str, list[float]] | None = None
+    # Cached gripper max opening in metres (static config; read from the arm on
+    # first get_gripper_max_opening).
+    self._gripper_max_opening: float | None = None
     self._connect(timeout)
 
   def _connect(self, timeout: float) -> None:
@@ -107,6 +118,7 @@ class ArmInterface:
             channel=self._can_port,
         )
     )
+    self._init_gripper()
     self._arm.connect()
     deadline = time.time() + timeout
     # TODO: The Nero version in the examples also calls self._arm.enable()
@@ -142,7 +154,21 @@ class ArmInterface:
             channel=self._can_port,
         )
     )
+    self._init_gripper()
     self._arm.connect()
+
+  def _init_gripper(self) -> None:
+    """Initializes the gripper effector on the current driver.
+
+    Must be called before connect() (per pyAgxArm's effector docs, so the
+    effector's feedback is parsed from the start of the read thread) and only
+    once per driver instance -- a reconnect creates a new driver and re-inits.
+    See the init_effector notes in:
+    https://github.com/agilexrobotics/pyAgxArm/blob/841a625/docs/effector/agx_gripper/agx_gripper_api.md
+    """
+    self._gripper = self._arm.init_effector(
+        self._arm.OPTIONS.EFFECTOR.AGX_GRIPPER
+    )
 
   def disconnect(self) -> None:
     if self._arm is not None:
@@ -334,3 +360,75 @@ class ArmInterface:
     self._arm.move_mit(
         joint_index + 1, p_des=0.0, v_des=0.0, kp=0.0, kd=0.0, t_ff=torque
     )
+
+  def get_gripper_max_opening(self) -> float:
+    """
+    Returns the gripper's maximum opening in metres, read from the arm.
+
+    Performs a one-time read of the gripper's configured max range and caches
+    it (static config), matching how get_joint_limits reads from the arm.
+
+    Raises:
+      RuntimeError: If the gripper parameter feedback is not available.
+    """
+    max_opening = self._gripper_max_opening
+    if max_opening is None:
+      param = self._gripper.get_gripper_teaching_pendant_param()
+      if param is None:
+        raise RuntimeError("No gripper parameter feedback available.")
+      max_opening = param.msg.max_range_config
+      self._gripper_max_opening = max_opening
+    return max_opening
+
+  def get_gripper_state(self) -> tuple[float, float]:
+    """
+    Returns the current gripper state as a tuple of (position in metres, force
+    in Newtons).
+
+    Returns:
+      tuple[float, float]: (gripper position, gripper force)
+
+    Raises:
+      RuntimeError: If no gripper feedback is available, or the gripper is in
+        angle mode (we only command width mode, so its value would be degrees,
+        not metres).
+    """
+    status = self._gripper.get_gripper_status()
+    if status is None:
+      raise RuntimeError("No gripper feedback available.")
+    # We only ever command via move_gripper_m (width mode), so value is in
+    # metres. Fail loudly rather than silently treat an angle (degrees) as
+    # metres if the gripper is somehow in angle mode.
+    if status.msg.mode != "width":
+      raise RuntimeError(
+          f"Gripper is in {status.msg.mode!r} mode; only width mode "
+          "(metres) is supported."
+      )
+    return status.msg.value, status.msg.force
+
+  def command_gripper(
+      self, position: float | None = None, force: float | None = None
+  ) -> None:
+    """
+    Commands the gripper to an opening width with a given force.
+
+    pyAgxArm's move command enables the gripper implicitly, so no separate
+    enable step is needed.
+
+    Args:
+      position (float | None): Desired gripper opening in metres, clipped to
+        [0, get_gripper_max_opening()]. If None, the current position is kept.
+      force (float | None): Desired gripper force in Newtons, clipped to
+        [0, _GRIPPER_FORCE_MAX]. If None, the current force is kept.
+    """
+    if position is None or force is None:
+      current_position, current_force = self.get_gripper_state()
+      position = current_position if position is None else position
+      force = current_force if force is None else force
+    position = min(max(position, 0.0), self.get_gripper_max_opening())
+    force = min(max(force, 0.0), _GRIPPER_FORCE_MAX)
+    self._gripper.move_gripper_m(value=position, force=force)
+
+  def disable_gripper(self) -> None:
+    """Disables the gripper. WARNING: it will go limp and may drop its load."""
+    self._gripper.disable_gripper()

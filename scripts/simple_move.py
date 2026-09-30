@@ -1,4 +1,4 @@
-"""Example of using the MIT position controller to move the arm a small amount.
+"""Example of moving the arm a small amount and opening/closing the gripper.
 
 To run this example:
 python3 scripts/simple_move.py
@@ -39,6 +39,14 @@ def main() -> None:
         raise TimeoutError("Timed out enabling the arm.")
       time.sleep(0.1)
 
+    # Open then close the gripper (commanding it enables it implicitly).
+    print("testing gripper: open then close")
+    with agilex_control.GripperController(arm) as gripper:
+      gripper.command_open()
+      time.sleep(2.0)
+      gripper.command_close()
+      time.sleep(2.0)
+
     # Read the starting pose to nudge from. enable_arm() can report enabled
     # before the first joint-angle frame arrives (they are separate CAN
     # messages), so get_joint_positions can briefly raise; retry until feedback
@@ -62,9 +70,16 @@ def main() -> None:
       print(f"reached target: {reached}")
     # Leaving the controller context parks the arm at its rest pose and relaxes.
   finally:
-    print("disabling arm. WARNING: it will power off and may drop.")
+    print(
+        "disabling gripper and arm. WARNING: the arm will power off and drop."
+    )
     try:
-      arm.disable_arm()
+      # Nest so a gripper-disable failure can't skip the arm disable (leaving
+      # the joint motors enabled), and disconnect always runs.
+      try:
+        arm.disable_gripper()
+      finally:
+        arm.disable_arm()
     finally:
       arm.disconnect()
     print("done. exiting.")

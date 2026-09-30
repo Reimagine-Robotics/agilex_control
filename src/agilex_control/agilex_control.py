@@ -4,8 +4,11 @@ These controllers are provided as a convenient high-level way of controlling the
 AgileX robotic arms. They provide two main benefits:
 - a simplified usage interface that hides much of the underlying pyAgxArm
   complexity,
-- a context manager (or an explicit stop()) that parks the arm in a safe rest
-  position on exit.
+- a context manager (or an explicit stop()) for lifecycle management. For
+  MitJointPositionController, stop() parks the arm in a safe rest position and
+  relaxes it on exit; GripperController's start()/stop() are no-ops (the caller
+  disables the gripper explicitly), so its context manager is only for API
+  consistency.
 """
 
 import dataclasses
@@ -80,6 +83,9 @@ class ArmOrientations:
         f"Unknown arm orientation: {orientation_name}. Available: {available}"
     )
 
+
+# Default gripper force in Newtons.
+DEFAULT_GRIPPER_FORCE = 1.0
 
 # Control rate in Hz. Frequency at which to send joint commands to the robot.
 _CONTROL_RATE = 200.0
@@ -329,3 +335,41 @@ class MitJointPositionController:
       time.sleep(1.0 / _CONTROL_RATE)
 
     return False
+
+
+class GripperController:
+  """Gripper controller."""
+
+  def __init__(self, arm: agilex_interface.ArmInterface):
+    self._arm = arm
+
+  def __enter__(self) -> "GripperController":
+    self.start()
+    return self
+
+  def __exit__(self, exit_type, value, traceback) -> None:
+    del exit_type, value, traceback
+    self.stop()
+
+  def start(self) -> None:
+    pass
+
+  def stop(self) -> None:
+    pass
+
+  def command_open(self) -> None:
+    """Opens the gripper fully (to its max opening)."""
+    self.command_position(self._arm.get_gripper_max_opening())
+
+  def command_close(self) -> None:
+    """Closes the gripper fully."""
+    self.command_position(0.0)
+
+  def command_position(
+      self, target: float, force: float = DEFAULT_GRIPPER_FORCE
+  ) -> None:
+    """Commands the gripper to an opening in metres with a force in Newtons.
+
+    The interface clips the opening to [0, get_gripper_max_opening()].
+    """
+    self._arm.command_gripper(position=target, force=force)
