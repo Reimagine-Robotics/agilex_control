@@ -8,19 +8,13 @@ AgileX robotic arms. They provide two main benefits:
   position on exit.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import time
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from agilex_control import agilex_interface
-
-if TYPE_CHECKING:
-  from typing import Self
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,7 +155,7 @@ class MitJointPositionController:
     # cache) so a later set_joint_limits is always reflected.
     arm.get_joint_limits()
 
-  def __enter__(self) -> Self:
+  def __enter__(self) -> "MitJointPositionController":
     self.start()
     return self
 
