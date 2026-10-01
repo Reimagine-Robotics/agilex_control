@@ -1,8 +1,15 @@
-"""CLI script for running gravity compensation on an AgileX arm.
+"""CLI script for gravity-compensated position hold, mirroring r2's serve.
 
-Holds the arm against gravity by feeding the MuJoCo gravity-comp model's torque
-as MIT feed-forward, plus light velocity damping for stability. The arm becomes
-back-drivable: you can move it by hand and it holds against gravity.
+Holds the arm at the pose it is engaged in using position control (kp/kd) with
+the MuJoCo gravity model fed as MIT feed-forward torque. This matches how r2's
+run_serve_piper runs gravity compensation: the (un-clamped) position servo holds
+the arm and the gravity feed-forward cancels most of the load so it feels light.
+Pure feed-forward instead -- the gravity torque as the only holding force --
+saturates the firmware's t_ff register (±8 N·m on newer firmware) at extended
+poses and can't hold the arm.
+
+Push the arm and it returns to the held pose, gravity-compensated. kd is the
+motor's native in-loop damping, not a software term.
 
 To run:
   python3 scripts/run_gravity_compensation.py --model-path <path/to/arm.xml>
@@ -14,8 +21,6 @@ import signal
 import threading
 import time
 
-import numpy as np
-
 from agilex_control import (
     agilex_control,
     agilex_interface,
@@ -24,6 +29,26 @@ from agilex_control import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Position and damping gains, matching r2's run_serve_piper DEFAULT_KP/KD_GAINS
+# (base Piper, 6 joints). The position servo does the holding; gravity
+# feed-forward cancels most of the load. kd is the motor's native damping.
+_KP_GAINS = (5.5, 5.5, 10.0, 15.0, 25.0, 15.0)
+_KD_GAIN = 0.8
+
+
+def _wait_for_joint_positions(
+    arm: agilex_interface.ArmInterface, timeout: float = 5.0
+) -> list[float]:
+  """Returns the first available joint position reading (retries on no data)."""
+  deadline = time.monotonic() + timeout
+  while True:
+    try:
+      return arm.get_joint_positions()
+    except RuntimeError:
+      if time.monotonic() >= deadline:
+        raise
+      time.sleep(0.05)
 
 
 def main() -> None:
@@ -52,12 +77,6 @@ def main() -> None:
       default=agilex_interface.ArmType.PIPER.name,
       choices=[arm_type.name for arm_type in agilex_interface.ArmType],
       help="Arm model.",
-  )
-  parser.add_argument(
-      "--damping",
-      type=float,
-      default=0.018,
-      help="Velocity damping gain for stability, Nm per rad/s.",
   )
   args = parser.parse_args()
 
@@ -99,25 +118,29 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
+    # r2's gains assume a 6-joint base Piper; fall back to a scalar otherwise.
+    kp_gains = _KP_GAINS if arm.get_num_joints() == len(_KP_GAINS) else 10.0
+
     with agilex_control.MitJointPositionController(
         arm,
-        kp_gains=5.0,
-        kd_gains=0.8,
+        kp_gains=kp_gains,
+        kd_gains=_KD_GAIN,
         rest_position=agilex_control.ArmOrientations.upright.rest_position,
     ) as controller:
       logger.info("Starting gravity compensation mode...")
       input("Press Enter to start... (Ctrl-C to stop)")
+      # Hold the pose the arm is in now; the position servo + gravity
+      # feed-forward keep it there.
+      hold_target = _wait_for_joint_positions(arm)
       while not shutdown.is_set():
         try:
           qpos = arm.get_joint_positions()
-          qvel = np.array(arm.get_joint_velocities())
         except RuntimeError:
-          # No feedback this tick; skip it (the motor holds its last torque).
+          # No feedback this tick; skip it (the motor holds its last command).
           time.sleep(0.005)
           continue
-        gravity_torque = model.predict(qpos)
-        damping_torque = -qvel * args.damping
-        controller.command_torques(gravity_torque + damping_torque)
+        gravity_torque = model.predict(qpos).tolist()
+        controller.command_joints(hold_target, torques_ff=gravity_torque)
         time.sleep(0.005)
     # Leaving the controller context parks the arm at its rest pose and relaxes.
   finally:
