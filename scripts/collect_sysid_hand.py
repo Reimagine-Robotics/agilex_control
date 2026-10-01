@@ -26,6 +26,10 @@ SAFETY: between poses the arm is LIMP -- you move it by hand. During a hold it
 actively holds the captured pose; keep clear and let go once it takes over.
 Ctrl-C saves what was collected, then relaxes.
 
+By default each pose is captured when you press Enter (q+Enter to finish) --
+handy when the robot is within reach. Use --trigger countdown for a timed
+capture when it isn't.
+
 To run:
   python3 scripts/collect_sysid_hand.py --model-path <arm.xml> \
       --out-path samples.npz
@@ -35,6 +39,8 @@ To run:
 
 import argparse
 import logging
+import select
+import sys
 import time
 
 import numpy as np
@@ -77,6 +83,34 @@ def _hold_ff(arm, q_des: np.ndarray, model, num_joints: int) -> np.ndarray:
   return q
 
 
+def _wait_limp_for_key(arm, model, num_joints: int, pose_num: int) -> bool:
+  """Hold the arm limp until Enter (capture) or 'q'+Enter (finish).
+
+  Keeps commanding zero torque while polling stdin, so the arm stays
+  backdrivable (and no command watchdog trips) while you position it by hand.
+  Returns True to capture this pose, False to finish.
+  """
+  print(
+      f"\n  pose {pose_num}: position by hand, then [Enter]=capture,"
+      " [q then Enter]=finish"
+  )
+  last_print = 0.0
+  while True:
+    for i in range(num_joints):
+      arm.command_joint_torque_mit(i, 0.0)  # stay limp / backdrivable.
+    now = time.monotonic()
+    if now - last_print > 1.0:
+      try:
+        q = np.array(arm.get_joint_positions())
+        print(f"    model tau={np.asarray(model.predict(q))}")
+      except RuntimeError:
+        pass
+      last_print = now
+    ready, _, _ = select.select([sys.stdin], [], [], 0.02)
+    if ready:
+      return sys.stdin.readline().strip().lower() != "q"
+
+
 def main() -> None:
   logging.basicConfig(level=logging.INFO)
   parser = argparse.ArgumentParser(
@@ -97,10 +131,20 @@ def main() -> None:
       help="Arm model.",
   )
   parser.add_argument(
+      "--trigger",
+      choices=("enter", "countdown"),
+      default="enter",
+      help=(
+          "enter: press Enter to capture each pose (q+Enter to finish) -- best"
+          " when the robot is within reach. countdown: capture after"
+          " --countdown seconds."
+      ),
+  )
+  parser.add_argument(
       "--countdown",
       type=float,
       default=4.0,
-      help="Seconds to position each pose before the arm takes over the hold.",
+      help="Seconds to position each pose (only for --trigger countdown).",
   )
   args = parser.parse_args()
 
@@ -130,31 +174,35 @@ def main() -> None:
     arm.set_mit_mode()
     print(
         "\nHand-guided sysid collection. For each pose: move the arm by hand"
-        " (it's limp) to a LOADED pose, hold it, wait for takeover, let go."
-        " Ctrl-C when done (saves)."
+        " (it's limp) to a LOADED pose, trigger takeover, then LET GO."
+        " Ctrl-C also saves and exits."
     )
 
     while True:
-      # Positioning phase: limp, show predicted torque so you aim for load.
-      end = time.monotonic() + args.countdown
-      next_print = args.countdown
-      while time.monotonic() < end:
-        for i in range(num_joints):
-          arm.command_joint_torque_mit(i, 0.0)  # limp / backdrivable.
-        try:
-          q = np.array(arm.get_joint_positions())
-          tau = np.asarray(model.predict(q))
-        except RuntimeError:
+      # Positioning phase: arm stays limp while you place it by hand.
+      if args.trigger == "enter":
+        if not _wait_limp_for_key(arm, model, num_joints, len(qpos_buf) + 1):
+          break  # q+Enter -> finish and save.
+      else:
+        end = time.monotonic() + args.countdown
+        next_print = args.countdown
+        while time.monotonic() < end:
+          for i in range(num_joints):
+            arm.command_joint_torque_mit(i, 0.0)  # limp / backdrivable.
+          try:
+            q = np.array(arm.get_joint_positions())
+            tau = np.asarray(model.predict(q))
+          except RuntimeError:
+            time.sleep(0.02)
+            continue
+          remaining = end - time.monotonic()
+          if remaining <= next_print:
+            print(
+                f"  pose {len(qpos_buf) + 1}: hold still, takeover in"
+                f" {int(remaining) + 1}s  model tau={tau}"
+            )
+            next_print -= 1
           time.sleep(0.02)
-          continue
-        remaining = end - time.monotonic()
-        if remaining <= next_print:
-          print(
-              f"  pose {len(qpos_buf) + 1}: hold still, takeover in"
-              f" {int(remaining) + 1}s  model tau={tau}"
-          )
-          next_print -= 1
-        time.sleep(0.02)
 
       q_des = np.array(arm.get_joint_positions())
       print(f"  takeover at q(deg)={np.degrees(q_des)} -- LET GO.")
