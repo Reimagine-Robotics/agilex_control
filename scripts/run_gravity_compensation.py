@@ -4,13 +4,14 @@ Mirrors r2's TeachController: feeds the MuJoCo gravity model as pure MIT
 feed-forward torque (kp=kd=0) plus a small per-joint velocity damping term, so
 the arm holds against gravity but moves freely when pushed by hand.
 
-The commanded torque is pre-scaled by the per-joint torque coefficient c (read
-from the arm) to cancel pyAgxArm's move_mit t_ff/=c, which the arm does not
-restore -- without it the wrist over-delivers by ~1/c and floats up. Pass
---no-compensate-c to see that raw behaviour. Use a calibrated (live) model; the
-raw CAD model over-estimates mass and will still over-compensate. On newer
-firmware the gravity torque can also exceed the t_ff register limit (±8 N·m) at
-extended poses.
+--compensate-c pre-scales the commanded torque by the per-joint torque
+coefficient c (read from the arm). The base-Piper setup needs it (the raw wrist
+over-delivers by ~1/c and floats); piperH does NOT (raw is correct there, and
+this makes it sag), so it is opt-in until the arm/model split is understood. Use
+a calibrated (live) model matched to the arm; a wrong/too-light model sags and a
+CAD model over-estimates and floats, independent of c. On newer firmware the
+gravity torque can also exceed the t_ff register limit (±8 N·m) at extended
+poses.
 
 To run:
   python3 scripts/run_gravity_compensation.py --model-path <path/to/arm.xml>
@@ -68,13 +69,12 @@ def main() -> None:
   )
   parser.add_argument(
       "--compensate-c",
-      action=argparse.BooleanOptionalAction,
-      default=True,
+      action="store_true",
       help=(
           "Pre-multiply commanded torque by the per-joint torque coefficient c"
-          " (read from the arm) to cancel pyAgxArm's t_ff/=c so the wrist holds"
-          " instead of floating. On by default; --no-compensate-c for the raw"
-          " (floating) behaviour."
+          " (read from the arm). Needed on the base-Piper setup (raw wrist"
+          " floats); NOT on piperH (raw is correct there, and this makes it"
+          " sag) -- so it is opt-in until we understand the arm/model split."
       ),
   )
   args = parser.parse_args()
