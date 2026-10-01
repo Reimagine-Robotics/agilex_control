@@ -81,6 +81,8 @@ def main() -> None:
   can_utils.activate()
   logger.info("Connecting on %s ...", args.can_port)
   arm = agilex_interface.ArmInterface(can_port=args.can_port, arm_type=arm_type)
+  num_joints = 0
+  q_des = None  # Captured hold pose; None until the countdown completes.
   try:
     logger.info("Firmware: %s", arm.get_firmware_version())
     num_joints = arm.get_num_joints()
@@ -133,9 +135,23 @@ def main() -> None:
   except KeyboardInterrupt:
     print("\nStopping.")
   finally:
+    # It does NOT park itself. Keep holding the pose for a few seconds so you
+    # can support the arm before it goes limp -- otherwise it drops on Ctrl-C.
+    if q_des is not None:
+      print("Support the arm -- going limp in 3s...")
+      end = time.monotonic() + 3.0
+      while time.monotonic() < end:
+        try:
+          for i in range(num_joints):
+            arm.command_joint_position_mit(
+                i, position=float(q_des[i]), kp=args.kp, kd=args.kd
+            )
+        except (RuntimeError, ValueError, OSError):
+          break
+        time.sleep(0.02)
     logger.info("Relaxing and disabling...")
     try:
-      for i in range(arm.get_num_joints()):
+      for i in range(num_joints):
         arm.command_joint_torque_mit(i, 0.0)
     except (RuntimeError, ValueError, OSError) as exc:
       logger.warning("Could not zero torque on exit: %s", exc)
