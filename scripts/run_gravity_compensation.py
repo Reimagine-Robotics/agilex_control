@@ -35,6 +35,16 @@ logger = logging.getLogger(__name__)
 # freely backdrivable. Applied as software feed-forward torque (-qvel * gain).
 _TEACH_DGAIN = (0.0, 0.002, 0.002, 0.018, 0.018, 0.018)
 
+# Per-joint torque coefficient c for a base Piper, from pyAgxArm's
+# ROBOT_JOINT_TORQUE_C (api/constants.py). Only the wrist joints differ from 1.
+# pyAgxArm's v183/post6 move_mit does `t_ff /= c` before packing, assuming the
+# firmware multiplies c back; if the firmware does NOT, the wrist gets ~1/c
+# (1.23x) the commanded torque. j5 is the only wrist joint bearing a real
+# gravity load, so that surplus floats j5 and nothing else -- the observed bug.
+# --compensate-c pre-multiplies the command by c to cancel the SDK's divide, as
+# an A/B test of that hypothesis on hardware.
+_PIPER_TORQUE_C = (1.0, 1.0, 1.0, 0.813252, 0.813252, 0.813252)
+
 
 def main() -> None:
   logging.basicConfig(level=logging.INFO)
@@ -62,6 +72,15 @@ def main() -> None:
       default=agilex_interface.ArmType.PIPER.name,
       choices=[arm_type.name for arm_type in agilex_interface.ArmType],
       help="Arm model.",
+  )
+  parser.add_argument(
+      "--compensate-c",
+      action="store_true",
+      help=(
+          "DIAGNOSTIC: pre-multiply commanded torque by the per-joint torque"
+          " coefficient c to cancel pyAgxArm's t_ff/=c on the wrist. Use to"
+          " A/B whether the j5 float is the c round-trip (base Piper only)."
+      ),
   )
   args = parser.parse_args()
 
@@ -110,6 +129,15 @@ def main() -> None:
         else 0.018
     )
 
+    # DIAGNOSTIC: optional per-joint command scale to cancel pyAgxArm's t_ff/=c
+    # (base Piper, 6 joints only). Off by default -> scale of 1.0 (no change).
+    torque_scale = 1.0
+    if args.compensate_c:
+      if arm.get_num_joints() != len(_PIPER_TORQUE_C):
+        raise ValueError("--compensate-c assumes a 6-joint base Piper.")
+      torque_scale = np.array(_PIPER_TORQUE_C)
+      logger.info("compensate-c ON: scaling command by %s", _PIPER_TORQUE_C)
+
     with agilex_control.MitJointPositionController(
         arm,
         kp_gains=5.0,  # Unused by command_torques; only for the stop() park.
@@ -129,7 +157,8 @@ def main() -> None:
         hover_torque = model.predict(qpos)
         # Small per-joint damping so the arm stays backdrivable but settles.
         stability_torque = -qvel * dgain
-        controller.command_torques((hover_torque + stability_torque).tolist())
+        command = (hover_torque + stability_torque) * torque_scale
+        controller.command_torques(command.tolist())
         time.sleep(0.005)
     # Leaving the controller context parks the arm at its rest pose and relaxes.
   finally:
