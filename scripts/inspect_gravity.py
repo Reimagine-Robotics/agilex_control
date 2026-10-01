@@ -12,6 +12,10 @@ whether the gravity model matches the arm (vs a joint-angle convention issue):
 - ``q`` sanity: near the home pose angles should read ~0, and moving a joint in
   its "+" direction should increase its angle. A surprising offset/sign = the
   angle convention differs from what the model was built against.
+- ``vel_ok`` checks the reported joint velocity sign against the actual motion
+  (numerical d/dt of position): 1 = matches, 0 = FLIPPED, - = not moving. A
+  flipped sign turns the teach damping (-qvel * gain) into anti-damping on that
+  joint, which can drive/float it.
 
 To run:
   python3 scripts/inspect_gravity.py --model-path <path/to/arm.xml>
@@ -62,15 +66,35 @@ def main() -> None:
   )
 
   np.set_printoptions(precision=2, suppress=True, sign=" ")
-  print("Move the arm by hand; watch q (deg) vs tau (Nm). Ctrl-C to stop.")
+  print("Move the arm by hand; watch q (deg), tau (Nm), vel. Ctrl-C to stop.")
+  print("vel_ok: 1 = reported vel sign matches motion, 0 = FLIPPED, - = still.")
+  prev_q = None
+  prev_t = None
   while True:
     try:
       q = np.array(arm.get_joint_positions())
+      vel = np.array(arm.get_joint_velocities())
     except RuntimeError:
       time.sleep(0.1)
       continue
     tau = np.asarray(model.predict(q))
-    print(f"q(deg): {np.degrees(q)}  tau(Nm): {tau}")
+    now = time.monotonic()
+    # Numerical d/dt of position as ground truth for the reported velocity sign:
+    # if pyAgxArm reports vel with a flipped sign, the teach damping becomes
+    # anti-damping on that joint (the j5-float hypothesis).
+    if prev_q is not None and now > prev_t:
+      dq_dt = (q - prev_q) / (now - prev_t)
+      moving = np.abs(dq_dt) > 0.05  # rad/s; ignore sensor jitter when still.
+      vel_ok = np.where(
+          moving, (np.sign(dq_dt) == np.sign(vel)).astype(int), -1
+      )
+    else:
+      vel_ok = np.full(q.shape, -1)
+    prev_q, prev_t = q, now
+    print(
+        f"q(deg): {np.degrees(q)}  tau(Nm): {tau}  "
+        f"vel(rad/s): {vel}  vel_ok: {vel_ok}"
+    )
     time.sleep(0.3)
 
 
