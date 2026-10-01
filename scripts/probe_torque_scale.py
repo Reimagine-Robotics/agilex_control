@@ -39,6 +39,29 @@ from agilex_control import agilex_interface, can_utils
 logger = logging.getLogger(__name__)
 
 
+def _fit_line(pairs):
+  """Least-squares (slope, intercept) of measured-vs-commanded torque.
+
+  The slope is the multiplicative command-path scaling we care about (~1/c on an
+  uncompensated wrist, ~1.0 when correct); the intercept is the additive offset
+  (friction / stiction / holding bias), which a single-point ratio would hide.
+  Returns (None, None) if there are too few distinct commands to fit.
+  """
+  n = len(pairs)
+  if n < 2:
+    return None, None
+  sx = sum(x for x, _ in pairs)
+  sy = sum(y for _, y in pairs)
+  sxx = sum(x * x for x, _ in pairs)
+  sxy = sum(x * y for x, y in pairs)
+  denom = n * sxx - sx * sx
+  if denom == 0:
+    return None, None
+  slope = (n * sxy - sx * sy) / denom
+  intercept = (sy - slope * sx) / n
+  return slope, intercept
+
+
 def _measure_torque(arm, joint_1based: int, samples: int = 10) -> float:
   """Median of a few get_motor_states torque reads for one joint (N.m)."""
   reads = []
@@ -137,6 +160,7 @@ def main() -> None:
     # ratio column settle. Ctrl-C stops it (cleanup zeroes torque and disables).
     print("\n commanded    measured    ratio")
     while True:
+      pairs = []
       for t_cmd in args.torques:
         arm.command_joint_torque_mit(joint - 1, t_cmd)
         time.sleep(args.settle)
@@ -145,7 +169,14 @@ def main() -> None:
         time.sleep(0.2)
         ratio = t_meas / t_cmd if t_cmd != 0 else float("nan")
         print(f"{t_cmd:>10.3f}  {t_meas:>10.3f}  {ratio:>7.3f}")
-      print("  --- (keep holding) ---")
+        pairs.append((t_cmd, t_meas))
+      # The slope is the real scaling (offset-immune); 1/c the thing to expect.
+      slope, intercept = _fit_line(pairs)
+      if slope is not None:
+        print(
+            f"  slope(scale)={slope:.3f}  offset={intercept:+.3f} N.m"
+            "  (keep holding)"
+        )
       time.sleep(0.5)
   finally:
     logger.info("Cleaning up (zeroing torque, disabling)...")
