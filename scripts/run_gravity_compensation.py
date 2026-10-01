@@ -1,15 +1,13 @@
-"""CLI script for gravity-compensated position hold, mirroring r2's serve.
+"""CLI script for backdrivable teach-mode gravity compensation.
 
-Holds the arm at the pose it is engaged in using position control (kp/kd) with
-the MuJoCo gravity model fed as MIT feed-forward torque. This matches how r2's
-run_serve_piper runs gravity compensation: the (un-clamped) position servo holds
-the arm and the gravity feed-forward cancels most of the load so it feels light.
-Pure feed-forward instead -- the gravity torque as the only holding force --
-saturates the firmware's t_ff register (±8 N·m on newer firmware) at extended
-poses and can't hold the arm.
+Mirrors r2's TeachController: feeds the MuJoCo gravity model as pure MIT
+feed-forward torque (kp=kd=0) plus a small per-joint velocity damping term, so
+the arm holds against gravity but moves freely when pushed by hand.
 
-Push the arm and it returns to the held pose, gravity-compensated. kd is the
-motor's native in-loop damping, not a software term.
+NOTE: this uses the raw MuJoCo model, which over-estimates mass on the arm, so
+expect some residual float / over-compensation (the same as r2's teach mode) --
+a calibrated model is the follow-up. On newer firmware the gravity torque can
+also exceed the t_ff register limit (±8 N·m) at extended poses.
 
 To run:
   python3 scripts/run_gravity_compensation.py --model-path <path/to/arm.xml>
@@ -21,6 +19,8 @@ import signal
 import threading
 import time
 
+import numpy as np
+
 from agilex_control import (
     agilex_control,
     agilex_interface,
@@ -30,25 +30,10 @@ from agilex_control import (
 
 logger = logging.getLogger(__name__)
 
-# Position and damping gains, matching r2's run_serve_piper DEFAULT_KP/KD_GAINS
-# (base Piper, 6 joints). The position servo does the holding; gravity
-# feed-forward cancels most of the load. kd is the motor's native damping.
-_KP_GAINS = (5.5, 5.5, 10.0, 15.0, 25.0, 15.0)
-_KD_GAIN = 0.8
-
-
-def _wait_for_joint_positions(
-    arm: agilex_interface.ArmInterface, timeout: float = 5.0
-) -> list[float]:
-  """Returns the first available joint position reading (retries on no data)."""
-  deadline = time.monotonic() + timeout
-  while True:
-    try:
-      return arm.get_joint_positions()
-    except RuntimeError:
-      if time.monotonic() >= deadline:
-        raise
-      time.sleep(0.05)
+# Per-joint velocity damping, matching r2's TeachController _TEACH_DGAIN (base
+# Piper, 6 joints): tiny on the big joints, zero on the base, so the arm stays
+# freely backdrivable. Applied as software feed-forward torque (-qvel * gain).
+_TEACH_DGAIN = (0.0, 0.002, 0.002, 0.018, 0.018, 0.018)
 
 
 def main() -> None:
@@ -118,29 +103,33 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # r2's gains assume a 6-joint base Piper; fall back to a scalar otherwise.
-    kp_gains = _KP_GAINS if arm.get_num_joints() == len(_KP_GAINS) else 10.0
+    # Per-joint damping assumes a 6-joint base Piper; scalar fallback otherwise.
+    dgain = (
+        np.array(_TEACH_DGAIN)
+        if arm.get_num_joints() == len(_TEACH_DGAIN)
+        else 0.018
+    )
 
     with agilex_control.MitJointPositionController(
         arm,
-        kp_gains=kp_gains,
-        kd_gains=_KD_GAIN,
+        kp_gains=5.0,  # Unused by command_torques; only for the stop() park.
+        kd_gains=0.8,
         rest_position=agilex_control.ArmOrientations.upright.rest_position,
     ) as controller:
       logger.info("Starting gravity compensation mode...")
       input("Press Enter to start... (Ctrl-C to stop)")
-      # Hold the pose the arm is in now; the position servo + gravity
-      # feed-forward keep it there.
-      hold_target = _wait_for_joint_positions(arm)
       while not shutdown.is_set():
         try:
           qpos = arm.get_joint_positions()
+          qvel = np.array(arm.get_joint_velocities())
         except RuntimeError:
-          # No feedback this tick; skip it (the motor holds its last command).
+          # No feedback this tick; skip it (the motor holds its last torque).
           time.sleep(0.005)
           continue
-        gravity_torque = model.predict(qpos).tolist()
-        controller.command_joints(hold_target, torques_ff=gravity_torque)
+        hover_torque = model.predict(qpos)
+        # Small per-joint damping so the arm stays backdrivable but settles.
+        stability_torque = -qvel * dgain
+        controller.command_torques((hover_torque + stability_torque).tolist())
         time.sleep(0.005)
     # Leaving the controller context parks the arm at its rest pose and relaxes.
   finally:
