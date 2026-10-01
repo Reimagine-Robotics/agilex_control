@@ -102,11 +102,21 @@ def main() -> None:
 
     print(
         "\nPosition the arm by hand with the WRIST LOADED (j5 ~horizontal) and"
-        " hold it. After the countdown it holds that pose; then let go."
+        " hold it. The arm stays LIMP during the countdown; after it, it holds"
+        " that pose -- then let go."
     )
-    for n in range(int(args.countdown), 0, -1):
-      print(f"  taking over hold in {n} ...")
-      time.sleep(1.0)
+    # Hold zero torque so the arm is backdrivable while you position it. Some
+    # firmwares hold stiff on enable with no command, which blocks hand motion.
+    end = time.monotonic() + args.countdown
+    next_print = args.countdown
+    while time.monotonic() < end:
+      for i in range(num_joints):
+        arm.command_joint_torque_mit(i, 0.0)
+      remaining = end - time.monotonic()
+      if remaining <= next_print:
+        print(f"  taking over hold in {int(remaining) + 1} ...")
+        next_print -= 1
+      time.sleep(0.02)
     q_des = np.array(arm.get_joint_positions())
     logger.info("Holding at q(deg)=%s", np.degrees(q_des))
     print("Let go. Comparing model vs measured torque. Ctrl-C to stop.\n")
