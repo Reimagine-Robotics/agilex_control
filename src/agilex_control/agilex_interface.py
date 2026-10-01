@@ -91,6 +91,9 @@ class ArmInterface:
     # both are set by _connect().
     self._arm: Any = None
     self._gripper: Any = None
+    # The pyAgxArm config dict used to build the connected driver (holds the
+    # per-model joint names and torque coefficients k/b/c). Set by _connect().
+    self._config: dict[str, Any] | None = None
     self._firmware_version: str | None = None
     # Cached per-joint angle limits (static config; read from the arm on first
     # get_joint_limits, invalidated by set_joint_limits).
@@ -110,14 +113,13 @@ class ArmInterface:
     """
     robot = _ARM_MODEL[self._arm_type]
 
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
     deadline = time.time() + timeout
@@ -146,14 +148,13 @@ class ArmInterface:
 
     # The firmware needs a specific driver: reconnect with it.
     self._arm.disconnect()
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=firmware_profile,  # pyAgxArm's spelling.
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=firmware_profile,  # pyAgxArm's spelling.
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
 
@@ -202,6 +203,19 @@ class ArmInterface:
   def get_num_joints(self) -> int:
     """Returns the number of joints on the arm."""
     return self._arm.joint_nums
+
+  def get_joint_torque_coefficients(self) -> list[float]:
+    """Returns the per-joint torque coefficient c for this arm.
+
+    c is pyAgxArm's SDK-end torque coefficient (from the per-model config, so
+    this returns the right values for whatever arm type this instance is --
+    PIPER, PIPER_H, NERO, ...). move_mit divides commanded t_ff by c before
+    putting it on the wire; see command_joint_torque_mit for why a caller that
+    wants the motor to deliver a true physical N.m pre-scales its torque by c.
+    """
+    if self._config is None:
+      raise RuntimeError("Not connected; no arm config available.")
+    return list(self._config["joint_torque_c"])
 
   def get_joint_positions(self) -> list[float]:
     """
@@ -326,9 +340,13 @@ class ArmInterface:
     """
     Commands a single joint via MIT control to a given angle.
 
-    Requires MIT mode (see set_mit_mode). pyAgxArm applies the per-model b/c
-    scaling and the per-firmware wire torque limit internally, so torque_ff is
-    passed as raw physical Nm.
+    Requires MIT mode (see set_mit_mode). torque_ff is forwarded to pyAgxArm's
+    move_mit unchanged. Note: move_mit divides t_ff by the per-joint torque
+    coefficient c before putting it on the wire, expecting the arm to multiply
+    it back; we've noticed on our arms the wrist c is not restored, so a raw
+    t_ff over-delivers wrist torque by ~1/c. Callers that need the motor to
+    deliver a true physical Nm should pre-scale by c (see
+    get_joint_torque_coefficients).
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
@@ -351,7 +369,13 @@ class ArmInterface:
     """
     Commands a single joint via pure MIT torque (zero PD gains).
 
-    Requires MIT mode (see set_mit_mode).
+    Requires MIT mode (see set_mit_mode). torque is forwarded to move_mit as
+    t_ff unchanged. Note: move_mit divides t_ff by the per-joint torque
+    coefficient c before putting it on the wire, expecting the arm to multiply
+    it back; we've noticed on our arms the wrist c is not restored, so a raw
+    torque over-delivers wrist torque by ~1/c. Callers that need the motor to
+    deliver a true physical Nm should pre-scale by c (see
+    get_joint_torque_coefficients).
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
