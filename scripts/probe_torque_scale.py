@@ -84,6 +84,12 @@ def main() -> None:
       default=0.5,
       help="Seconds to hold each commanded torque before measuring.",
   )
+  parser.add_argument(
+      "--countdown",
+      type=float,
+      default=5.0,
+      help="Seconds to grab the joint before the sweep starts (hands-free).",
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -119,20 +125,28 @@ def main() -> None:
     arm.set_mit_mode()
 
     print(
-        f"\nHOLD joint {joint} STILL by hand at a comfortable pose. It will be"
-        f" commanded {args.torques} N.m in turn (0 in between)."
+        f"\nGrab joint {joint} and HOLD IT STILL at a comfortable pose. It will"
+        f" be commanded {args.torques} N.m in turn (0 between), looping until"
+        " Ctrl-C."
     )
-    input("Press Enter to start... (Ctrl-C to stop)")
+    for n in range(int(args.countdown), 0, -1):
+      print(f"  starting in {n} ...")
+      time.sleep(1.0)
 
+    # Loop the sweep so it is fully hands-free: hold the joint and watch the
+    # ratio column settle. Ctrl-C stops it (cleanup zeroes torque and disables).
     print("\n commanded    measured    ratio")
-    for t_cmd in args.torques:
-      arm.command_joint_torque_mit(joint - 1, t_cmd)
-      time.sleep(args.settle)
-      t_meas = _measure_torque(arm, joint)
-      arm.command_joint_torque_mit(joint - 1, 0.0)  # relax between steps.
-      time.sleep(0.2)
-      ratio = t_meas / t_cmd if t_cmd != 0 else float("nan")
-      print(f"{t_cmd:>10.3f}  {t_meas:>10.3f}  {ratio:>7.3f}")
+    while True:
+      for t_cmd in args.torques:
+        arm.command_joint_torque_mit(joint - 1, t_cmd)
+        time.sleep(args.settle)
+        t_meas = _measure_torque(arm, joint)
+        arm.command_joint_torque_mit(joint - 1, 0.0)  # relax between steps.
+        time.sleep(0.2)
+        ratio = t_meas / t_cmd if t_cmd != 0 else float("nan")
+        print(f"{t_cmd:>10.3f}  {t_meas:>10.3f}  {ratio:>7.3f}")
+      print("  --- (keep holding) ---")
+      time.sleep(0.5)
   finally:
     logger.info("Cleaning up (zeroing torque, disabling)...")
     try:
