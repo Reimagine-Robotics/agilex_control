@@ -207,11 +207,11 @@ class ArmInterface:
   def get_joint_torque_coefficients(self) -> list[float]:
     """Returns the per-joint torque coefficient c for this arm.
 
-    c is pyAgxArm's SDK-end torque coefficient (from the per-model config, so
-    this returns the right values for whatever arm type this instance is --
-    PIPER, PIPER_H, NERO, ...). move_mit divides commanded t_ff by c before
-    putting it on the wire; see command_joint_torque_mit for why a caller that
-    wants the motor to deliver a true physical N.m pre-scales its torque by c.
+    c is pyAgxArm's SDK-end torque coefficient, read from the per-model config,
+    so it is correct for whatever arm type this instance is (PIPER, PIPER_H,
+    NERO, ...). move_mit divides commanded t_ff by c internally. Exposed for
+    callers reconciling an externally-sourced torque reference to this arm (see
+    MIGRATING_FROM_PIPER_CONTROL.md).
     """
     if self._config is None:
       raise RuntimeError("Not connected; no arm config available.")
@@ -243,6 +243,21 @@ class ArmInterface:
     if any(state is None for state in states):
       raise RuntimeError("No motor state feedback available.")
     return [state.msg.velocity for state in states]
+
+  def get_joint_torques(self) -> list[float]:
+    """
+    Returns the current measured joint torques as a sequence of floats (Nm).
+
+    Returns:
+      Sequence[float]: Joint torques in Nm.
+    """
+    states = [
+        self._arm.get_motor_states(i)
+        for i in range(1, self.get_num_joints() + 1)
+    ]
+    if any(state is None for state in states):
+      raise RuntimeError("No motor state feedback available.")
+    return [state.msg.torque for state in states]
 
   def get_joint_limits(self) -> dict[str, list[float]]:
     """
@@ -340,13 +355,8 @@ class ArmInterface:
     """
     Commands a single joint via MIT control to a given angle.
 
-    Requires MIT mode (see set_mit_mode). torque_ff is forwarded to pyAgxArm's
-    move_mit unchanged. Note: move_mit divides t_ff by the per-joint torque
-    coefficient c before putting it on the wire, expecting the arm to multiply
-    it back; we've noticed on our arms the wrist c is not restored, so a raw
-    t_ff over-delivers wrist torque by ~1/c. Callers that need the motor to
-    deliver a true physical Nm should pre-scale by c (see
-    get_joint_torque_coefficients).
+    Requires MIT mode (see set_mit_mode). torque_ff is the feed-forward torque
+    in Nm, in the same units get_joint_torques reports.
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
@@ -369,13 +379,8 @@ class ArmInterface:
     """
     Commands a single joint via pure MIT torque (zero PD gains).
 
-    Requires MIT mode (see set_mit_mode). torque is forwarded to move_mit as
-    t_ff unchanged. Note: move_mit divides t_ff by the per-joint torque
-    coefficient c before putting it on the wire, expecting the arm to multiply
-    it back; we've noticed on our arms the wrist c is not restored, so a raw
-    torque over-delivers wrist torque by ~1/c. Callers that need the motor to
-    deliver a true physical Nm should pre-scale by c (see
-    get_joint_torque_coefficients).
+    Requires MIT mode (see set_mit_mode). torque is the feed-forward torque in
+    Nm, in the same units get_joint_torques reports.
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
