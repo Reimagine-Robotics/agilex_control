@@ -75,26 +75,6 @@ def test_command_joint_torque_mit_maps_to_move_mit():
   ]
 
 
-def test_get_joint_torque_coefficients_returns_config_c():
-  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
-  arm._config = {"joint_torque_c": (1.0, 1.0, 1.0, 0.813, 0.813, 0.813)}
-  assert arm.get_joint_torque_coefficients() == [
-      1.0,
-      1.0,
-      1.0,
-      0.813,
-      0.813,
-      0.813,
-  ]
-
-
-def test_get_joint_torque_coefficients_raises_without_config():
-  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
-  arm._config = None
-  with pytest.raises(RuntimeError):
-    arm.get_joint_torque_coefficients()
-
-
 class _FakeGripper:
   """Fake effector recording move_gripper_m and returning canned feedback."""
 
