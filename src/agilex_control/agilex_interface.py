@@ -251,7 +251,7 @@ class ArmInterface:
           )
         if status.msg.mode == "angle":
           self._gripper.move_gripper_deg(
-            value=status.msg.value, force=status.msg.force
+              value=status.msg.value, force=status.msg.force
           )
       if time.time() >= deadline:
         raise TimeoutError("Timed out while trying to enable the gripper")
