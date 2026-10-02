@@ -68,6 +68,16 @@ def main() -> None:
       help="Arm model.",
   )
   parser.add_argument(
+      "--damping-scale",
+      type=float,
+      default=1.0,
+      help=(
+          "Scale the teach velocity damping (0 = off). Diagnostic: a joint that"
+          " floats with damping but holds at 0 has a flipped velocity sign"
+          " (-qvel*dgain becomes anti-damping)."
+      ),
+  )
+  parser.add_argument(
       "--compensate-c",
       action="store_true",
       help=(
@@ -118,7 +128,11 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
 
     # Per-joint damping assumes a 6-joint base Piper; scalar fallback otherwise.
-    dgain = (
+    # --damping-scale scales it (0 = no damping) -- a diagnostic: the damping is
+    # -qvel*dgain, so a flipped joint-velocity sign turns it into anti-damping
+    # (drives that joint). If a joint floats with damping but holds at
+    # --damping-scale 0, its reported velocity sign is flipped.
+    dgain = args.damping_scale * (
         np.array(_TEACH_DGAIN)
         if arm.get_num_joints() == len(_TEACH_DGAIN)
         else 0.018
