@@ -28,7 +28,8 @@ Ctrl-C saves what was collected, then relaxes.
 
 By default each pose is captured when you press Enter (q+Enter to finish) --
 handy when the robot is within reach. Use --trigger countdown for a timed
-capture when it isn't.
+capture when it isn't. Use --append to add poses to an existing .npz (e.g. to
+top up a dataset with wrist-loaded poses so j5 becomes identifiable).
 
 To run:
   python3 scripts/collect_sysid_hand.py --model-path <arm.xml> \
@@ -39,6 +40,7 @@ To run:
 
 import argparse
 import logging
+import os
 import select
 import sys
 import time
@@ -146,6 +148,14 @@ def main() -> None:
       default=4.0,
       help="Seconds to position each pose (only for --trigger countdown).",
   )
+  parser.add_argument(
+      "--append",
+      action="store_true",
+      help=(
+          "Append to an existing --out-path .npz instead of starting fresh --"
+          " e.g. to top up a dataset with more wrist-loaded poses for j5."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -164,6 +174,25 @@ def main() -> None:
     model = gravity_compensation.GravityCompensationModel(
         model_path=args.model_path, joint_names=joint_names
     )
+
+    # --append: seed the buffers from the existing file so new poses add on.
+    if args.append:
+      if os.path.exists(args.out_path):
+        prev = np.load(args.out_path)
+        prev_joints = prev["qpos"].shape[1]
+        if prev_joints != num_joints:
+          raise ValueError(
+              f"{args.out_path} has {prev_joints} joints, arm has {num_joints}."
+          )
+        qpos_buf.extend(prev["qpos"])
+        eff_buf.extend(prev["efforts"])
+        std_buf.extend(prev["efforts_std"])
+        logger.info("Appending to %d existing poses.", len(qpos_buf))
+      else:
+        logger.warning(
+            "--append but %s missing; starting fresh.", args.out_path
+        )
+
     arm.set_installation_pos(agilex_interface.ArmInstallationPos.UPRIGHT)
     logger.info("Enabling arm...")
     deadline = time.monotonic() + 5.0
