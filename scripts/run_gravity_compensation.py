@@ -84,6 +84,16 @@ def main() -> None:
           " float. Defaults to all 1.0 (no scaling)."
       ),
   )
+  parser.add_argument(
+      "--damping-scale",
+      type=float,
+      default=1.0,
+      help=(
+          "DIAGNOSTIC: scale the velocity damping (0 = off). A joint that"
+          " floats with damping but holds at 0 has a flipped velocity sign,"
+          " turning -qvel*dgain into anti-damping that drives it."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -125,7 +135,9 @@ def main() -> None:
 
     # Per-joint damping keyed by joint count (Piper 6, Nero 7); else scalar.
     teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
-    dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
+    dgain = args.damping_scale * (
+        np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
+    )
 
     # Diagnostic per-joint command scale (default no-op).
     command_scale = 1.0
