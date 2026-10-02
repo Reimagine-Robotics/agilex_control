@@ -230,6 +230,21 @@ class ArmInterface:
       raise RuntimeError("No motor state feedback available.")
     return [state.msg.velocity for state in states]
 
+  def get_joint_torques(self) -> list[float]:
+    """
+    Returns the current measured joint torques as a sequence of floats (Nm).
+
+    Returns:
+      Sequence[float]: Joint torques in Nm.
+    """
+    states = [
+        self._arm.get_motor_states(i)
+        for i in range(1, self.get_num_joints() + 1)
+    ]
+    if any(state is None for state in states):
+      raise RuntimeError("No motor state feedback available.")
+    return [state.msg.torque for state in states]
+
   def get_joint_limits(self) -> dict[str, list[float]]:
     """
     Returns the per-joint angle limits (radians) read from the arm.
