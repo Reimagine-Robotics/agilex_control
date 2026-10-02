@@ -33,10 +33,16 @@ from agilex_control import (
 
 logger = logging.getLogger(__name__)
 
-# Per-joint velocity damping, matching r2's TeachController _TEACH_DGAIN (base
-# Piper, 6 joints): tiny on the big joints, zero on the base, so the arm stays
-# freely backdrivable. Applied as software feed-forward torque (-qvel * gain).
-_TEACH_DGAIN = (0.0, 0.002, 0.002, 0.018, 0.018, 0.018)
+# Per-joint velocity damping, applied as software feed-forward torque
+# (-qvel * gain) so the arm stays freely backdrivable. Keyed by joint count:
+# the 6-joint base Piper matches r2's TeachController; the 7-joint Nero uses the
+# per-joint gains from Marco's nero_teach experiment. Other joint counts fall
+# back to a flat scalar.
+_TEACH_DGAIN_BY_DOF = {
+    6: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),  # base Piper / piperH
+    7: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),  # Nero (Marco's nero_teach)
+}
+_FALLBACK_DGAIN = 0.018
 
 
 def main() -> None:
@@ -105,12 +111,9 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # Per-joint damping assumes a 6-joint base Piper; scalar fallback otherwise.
-    dgain = (
-        np.array(_TEACH_DGAIN)
-        if arm.get_num_joints() == len(_TEACH_DGAIN)
-        else 0.018
-    )
+    # Per-joint damping keyed by joint count (Piper 6, Nero 7); else scalar.
+    teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
+    dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
 
     with agilex_control.MitJointPositionController(
         arm,
