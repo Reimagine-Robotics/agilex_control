@@ -227,11 +227,9 @@ class ArmInterface:
     status = self._gripper.get_gripper_status()
     while not status.msg.foc_status.driver_enable_status:
       self._gripper.move_gripper_m(
-        value = status.msg.value,
-        force = status.msg.force
+          value=status.msg.value, force=status.msg.force
       )
       status = self._gripper.get_gripper_status()
-
 
   def disable_arm(self) -> bool:
     """Disables all joint motors, returning whether they report disabled.
@@ -241,6 +239,7 @@ class ArmInterface:
     return self._arm.disable()
 
   def disable_gripper(self) -> bool:
+    """Disables the gripper. WARNING: it will go limp and may drop its load."""
     return self._gripper.disable_gripper()
 
   def get_firmware_version(self) -> str | None:
@@ -486,10 +485,6 @@ class ArmInterface:
     position = min(max(position, 0.0), self.get_gripper_max_opening())
     force = min(max(force, 0.0), _GRIPPER_FORCE_MAX)
     self._gripper.move_gripper_m(value=position, force=force)
-
-  def disable_gripper(self) -> None:
-    """Disables the gripper. WARNING: it will go limp and may drop its load."""
-    self._gripper.disable_gripper()
 
   @property
   def arm_type(self) -> ArmType:
