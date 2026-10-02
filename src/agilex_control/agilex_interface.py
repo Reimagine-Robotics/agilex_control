@@ -68,6 +68,9 @@ _DEFAULT_FIRMWARE_PROFILE = "default"
 # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/docs/effector/agx_gripper/agx_gripper_api.md
 _GRIPPER_FORCE_MAX = 3.0
 
+# timeout for enable
+_ENABLE_TIMEOUT = 8.0
+
 
 class ArmInterface:
   """A thin wrapper around pyAgxArm for a single AgileX arm.
@@ -176,9 +179,59 @@ class ArmInterface:
     if self._arm is not None:
       self._arm.disconnect()
 
+  def is_arm_enabled(self) -> bool:
+    """
+    Checks if the arms joints are enabled
+
+    Returns:
+      bool: True if all the joints are enabled, False otherwise
+    """
+    status_list = self._arm.get_joints_enable_status_list()
+    return all(joint_status is True for joint_status in status_list)
+
+  def is_gripper_enabled(self) -> bool:
+    """
+    Checks if the gripper is enabled
+    Returns:
+      bool: True if the gripper is enabled, False otherwise
+    """
+    status = self._gripper.get_gripper_status()
+    return status.msg.foc_status.driver_enable_status
+
+  def is_enabled(self) -> bool:
+    """
+    Checks if the robot arm and gripper are enabled
+
+    Returns:
+      bool: True if the arm and gripper are enabled, False otherwise
+    """
+    return self.is_arm_enabled() and self.is_gripper_enabled()
+
   def enable_arm(self) -> bool:
     """Enables all joint motors, returning whether they report enabled."""
-    return self._arm.enable()
+    enable_deadline = time.time() + _ENABLE_TIMEOUT
+
+    while not self._arm.enable():
+      if time.time() < enable_deadline:
+        return False
+      time.sleep(0.01)
+
+    return True
+
+  def enable_gripper(self) -> None:
+    """
+    The gripper enables takes time to enable itself and needs to receive
+    msgs which sometimes takes time. Sending a gripper message forces the
+    drivers to enable
+    """
+    status = self._gripper.get_gripper_status()
+    while not status.msg.foc_status.driver_enable_status:
+      self._gripper.move_gripper_m(
+        value = status.msg.value,
+        force = status.msg.force
+      )
+      status = self._gripper.get_gripper_status()
+
 
   def disable_arm(self) -> bool:
     """Disables all joint motors, returning whether they report disabled.
@@ -186,6 +239,9 @@ class ArmInterface:
     WARNING: this powers down the joints; an unsupported arm will drop.
     """
     return self._arm.disable()
+
+  def disable_gripper(self) -> bool:
+    return self._gripper.disable_gripper()
 
   def get_firmware_version(self) -> str | None:
     """Return the arm's firmware version, normalized (e.g. "1.8.post6").
