@@ -34,13 +34,11 @@ from agilex_control import (
 logger = logging.getLogger(__name__)
 
 # Per-joint velocity damping, applied as software feed-forward torque
-# (-qvel * gain) so the arm stays freely backdrivable. Keyed by joint count:
-# the 6-joint base Piper matches r2's TeachController; the 7-joint Nero uses the
-# per-joint gains from Marco's nero_teach experiment. Other joint counts fall
-# back to a flat scalar.
+# (-qvel * gain) so the arm stays freely backdrivable. Keyed by joint count
+# for Piper arms and Nero arms.
 _TEACH_DGAIN_BY_DOF = {
-    6: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),  # base Piper / piperH
-    7: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),  # Nero (Marco's nero_teach)
+    6: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),  # Piper.
+    7: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),  # Nero.
 }
 _FALLBACK_DGAIN = 0.018
 
@@ -72,6 +70,16 @@ def main() -> None:
       choices=[arm_type.name for arm_type in agilex_interface.ArmType],
       help="Arm model.",
   )
+  parser.add_argument(
+      "--compensate-c",
+      action="store_true",
+      help=(
+          "Multiply the model torque by the per-joint c coefficient. Set this"
+          " only for backwards compatibility with a model calibrated against"
+          " k*b effort (piper_control), not k*b*c torque (agilex_control);"
+          " leave off for an agilex_control-calibrated model."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -82,9 +90,7 @@ def main() -> None:
   try:
     logger.info("Firmware version: %s", arm.get_firmware_version())
 
-    # Default the joint names to joint1..jointN from the arm's joint count
-    # (pyAgxArm uses this convention for every model, including the 7-joint
-    # Nero), rather than hardcoding six.
+    # Default the joint names to joint1..jointN from the arm's joint count.
     joint_names = args.joint_names or [
         f"joint{i}" for i in range(1, arm.get_num_joints() + 1)
     ]
@@ -99,6 +105,17 @@ def main() -> None:
         model_path=args.model_path, joint_names=joint_names
     )
 
+    # Prepare the two per-joint corrections to the model torque:
+    # 1) command_scale: the k*b scale (see direct_scaling_factors) for non-base
+    # Piper arms, computed before enabling so unsupported firmware raises first.
+    # 2) torque_c: the per-joint torque c coefficient, applied only for
+    # backwards compatibility with a model calibrated against k*b effort
+    # (piper_control), not k*b*c torque (agilex_control).
+    command_scale = np.array(arm.direct_scaling_factors())
+    logger.info("command scale: %s", command_scale)
+    _, _, joint_torque_c = arm.get_joint_torque_coefficients()
+    torque_c = np.array(joint_torque_c) if args.compensate_c else 1.0
+
     logger.info("enabling arm")
     arm.enable_arm()
 
@@ -111,7 +128,6 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # Per-joint damping keyed by joint count (Piper 6, Nero 7); else scalar.
     teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
     dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
 
@@ -130,8 +146,7 @@ def main() -> None:
           # No feedback this tick; skip it (the motor holds its last torque).
           time.sleep(0.005)
           continue
-        hover_torque = model.predict(qpos)
-        # Small per-joint damping so the arm stays backdrivable but settles.
+        hover_torque = model.predict(qpos) * command_scale * torque_c
         stability_torque = -qvel * dgain
         command = hover_torque + stability_torque
         controller.command_torques(command.tolist())

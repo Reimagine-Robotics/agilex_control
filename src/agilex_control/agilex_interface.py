@@ -96,6 +96,9 @@ class ArmInterface:
     # both are set by _connect().
     self._arm: Any = None
     self._gripper: Any = None
+    # The pyAgxArm config dict used to build the connected driver (holds the
+    # per-model joint torque coefficients k/b/c). Set by _connect().
+    self._config: dict[str, Any] | None = None
     self._firmware_version: str | None = None
     # Cached per-joint angle limits (static config; read from the arm on first
     # get_joint_limits, invalidated by set_joint_limits).
@@ -115,14 +118,13 @@ class ArmInterface:
     """
     robot = _ARM_MODEL[self._arm_type]
 
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
     deadline = time.time() + timeout
@@ -151,14 +153,13 @@ class ArmInterface:
 
     # The firmware needs a specific driver: reconnect with it.
     self._arm.disconnect()
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=firmware_profile,  # pyAgxArm's spelling.
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=firmware_profile,  # pyAgxArm's spelling.
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
 
@@ -285,6 +286,65 @@ class ArmInterface:
   def get_num_joints(self) -> int:
     """Returns the number of joints on the arm."""
     return self._arm.joint_nums
+
+  def get_joint_torque_coefficients(
+      self,
+  ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    """Returns the per-joint torque coefficients (k, b, c) for this arm.
+
+    Read from the per-model config, so they are correct for whatever arm type
+    this instance is. Measured joint torque decodes as current * k * b * c.
+    """
+    if self._config is None:
+      raise RuntimeError("Not connected; no arm config available.")
+    return (
+        tuple(self._config["joint_torque_k"]),
+        tuple(self._config["joint_torque_b"]),
+        tuple(self._config["joint_torque_c"]),
+    )
+
+  def direct_scaling_factors(self) -> tuple[float, ...]:
+    """Per-joint command-torque scale for this arm.
+
+    The firmware executes MIT feed-forward torque using base-Piper's k*b
+    torque-scaling coefficients, so a non-base arm's command is off by the
+    per-joint ratio base_piper(k*b)/arm(k*b). Multiply the commanded torque by
+    this to cancel it. Base Piper is the reference (ratio 1.0, no correction)
+    and Nero is a different arm family (left unscaled), so both are identity.
+
+    Note: c is not in this ratio -- the modern driver divides the command by c
+    only (not k or b) while the feedback decodes *c, so c cancels, leaving only
+    the k*b ratio.
+
+    Returns:
+      One scale factor per joint (all 1.0 for base Piper and for Nero).
+
+    Raises:
+      NotImplementedError: for a non-base arm on the legacy default driver
+        (i.e non-base Pipers on firmware <= 1.8.post2).
+    """
+    if self._arm_type in (ArmType.PIPER, ArmType.NERO):
+      return (1.0,) * self.get_num_joints()
+    # Check firmware support for non-base Piper arms.
+    firmware = self.get_firmware_version()
+    if firmware is not None and (
+        packaging_version.parse(firmware)
+        <= packaging_version.parse("1.8.post2")
+    ):
+      raise NotImplementedError(
+          "direct_scaling_factors is implemented only for the modern driver"
+          f" (firmware > 1.8.post2) on non-base Piper arms; got {firmware}."
+      )
+    k, b, _ = self.get_joint_torque_coefficients()
+    base = pyAgxArm.create_agx_arm_config(robot=_ARM_MODEL[ArmType.PIPER])
+    k_base = base["joint_torque_k"]
+    b_base = base["joint_torque_b"]
+    # base-piper k*b relative to this arm's k*b (identity for base piper).
+    model_scale = [
+        (base_k * base_b) / (arm_k * arm_b)
+        for base_k, base_b, arm_k, arm_b in zip(k_base, b_base, k, b)
+    ]
+    return tuple(model_scale)
 
   def get_joint_positions(self) -> list[float]:
     """

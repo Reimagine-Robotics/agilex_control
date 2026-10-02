@@ -1,9 +1,7 @@
 """Gravity compensation model using MuJoCo simulation.
 
-Predicts the per-joint torque needed to counteract gravity at a given
-configuration. The model is a pure MuJoCo forward-dynamics query (the bias
-torque, ``qfrc_bias``); the resulting physical torque is fed directly to
-pyAgxArm's ``move_mit``, which applies its own per-firmware torque scaling.
+Predicts the per-joint physical torque needed to counteract gravity at a given
+configuration.
 """
 
 import pathlib
