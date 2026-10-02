@@ -137,7 +137,7 @@ class ArmInterface:
         raise TimeoutError(
             f"Timed out waiting for firmware on {self._can_port}."
         )
-      time.sleep(0.5)
+      time.sleep(0.1)
       firmware = self._arm.get_firmware()
     software_version = firmware["software_version"]
     self._firmware_version = software_version
