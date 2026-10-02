@@ -1,9 +1,10 @@
 """Example of moving the arm a small amount and opening/closing the gripper.
 
 To run this example:
-python3 scripts/simple_move.py
+python3 scripts/simple_move.py [--arm_type piper|piper_h|piper_x|piper_l|nero]
 """
 
+import argparse
 import time
 
 from agilex_control import agilex_control, agilex_interface, can_utils
@@ -13,6 +14,17 @@ _MOVE_DELTA = 0.2
 
 
 def main() -> None:
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument(
+      "--arm_type",
+      type=str,
+      default="piper",
+      choices=[t.name.lower() for t in agilex_interface.ArmType],
+      help="Model of arm to control.",
+  )
+  args = parser.parse_args()
+  arm_type = agilex_interface.ArmType[args.arm_type.upper()]
+
   print(
       "This script will move the 2nd-to-last joint of the arm a small amount."
   )
@@ -26,7 +38,7 @@ def main() -> None:
     )
   print(f"Using CAN port: {ports[0]}")
 
-  arm = agilex_interface.ArmInterface(can_port=ports[0])
+  arm = agilex_interface.ArmInterface(can_port=ports[0], arm_type=arm_type)
   try:
     arm.set_installation_pos(agilex_interface.ArmInstallationPos.UPRIGHT)
 
