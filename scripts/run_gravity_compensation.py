@@ -72,6 +72,18 @@ def main() -> None:
       choices=[arm_type.name for arm_type in agilex_interface.ArmType],
       help="Arm model.",
   )
+  parser.add_argument(
+      "--command-scale",
+      type=float,
+      nargs="+",
+      default=None,
+      help=(
+          "DIAGNOSTIC: per-joint multiplier on the commanded torque (one value"
+          " per joint). Tests whether a joint is over/under-delivered, e.g."
+          " `1 1 1 0.757 0.757 1` to scale piperH j4/j5 by their c if they"
+          " float. Defaults to all 1.0 (no scaling)."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -115,6 +127,17 @@ def main() -> None:
     teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
     dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
 
+    # Diagnostic per-joint command scale (default no-op).
+    command_scale = 1.0
+    if args.command_scale is not None:
+      if len(args.command_scale) != arm.get_num_joints():
+        raise ValueError(
+            f"--command-scale has {len(args.command_scale)} values but the arm"
+            f" has {arm.get_num_joints()} joints."
+        )
+      command_scale = np.array(args.command_scale)
+      logger.info("command-scale ON: %s", command_scale)
+
     with agilex_control.MitJointPositionController(
         arm,
         kp_gains=5.0,  # Unused by command_torques; only for the stop() park.
@@ -133,7 +156,7 @@ def main() -> None:
         hover_torque = model.predict(qpos)
         # Small per-joint damping so the arm stays backdrivable but settles.
         stability_torque = -qvel * dgain
-        command = hover_torque + stability_torque
+        command = (hover_torque + stability_torque) * command_scale
         controller.command_torques(command.tolist())
         time.sleep(0.005)
     # Leaving the controller context parks the arm at its rest pose and relaxes.
