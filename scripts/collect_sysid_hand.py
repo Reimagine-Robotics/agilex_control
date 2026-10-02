@@ -74,7 +74,12 @@ def _measure_torques(arm, num_joints: int) -> np.ndarray:
 
 
 def _hold_ff(
-    arm, q_des: np.ndarray, model, num_joints: int, ff_scale: float = 1.0
+    arm,
+    q_des: np.ndarray,
+    model,
+    num_joints: int,
+    ff_scale: float = 1.0,
+    gain_scale: float = 1.0,
 ) -> np.ndarray:
   """One position-hold tick with (scaled) gravity feed-forward; returns qpos."""
   q = np.array(arm.get_joint_positions())
@@ -83,11 +88,29 @@ def _hold_ff(
     arm.command_joint_position_mit(
         i,
         position=float(q_des[i]),
-        kp=_KP_GAINS[i],
-        kd=_KD_GAIN,
+        kp=_KP_GAINS[i] * gain_scale,
+        kd=_KD_GAIN * gain_scale,
         torque_ff=float(ff[i]),
     )
   return q
+
+
+def _gentle_release(arm, q_des, model, num_joints, ramp_time) -> None:
+  """Fade feed-forward AND gains 1->0 so the arm lowers gently, then goes limp.
+
+  Avoids the sudden drop from snapping straight to zero torque (between poses
+  and on exit).
+  """
+  start = time.monotonic()
+  while True:
+    frac = (time.monotonic() - start) / ramp_time
+    if frac >= 1.0:
+      break
+    s = 1.0 - frac
+    _hold_ff(arm, q_des, model, num_joints, ff_scale=s, gain_scale=s)
+    time.sleep(1.0 / _CONTROL_FREQ)
+  for i in range(num_joints):
+    arm.command_joint_torque_mit(i, 0.0)  # fully limp.
 
 
 def _ramped_takeover(arm, q_des, model, num_joints, ramp_time) -> None:
@@ -338,10 +361,13 @@ def main() -> None:
       eff_buf.append(mean_eff)
       std_buf.append(std)
       logger.info(
-          "Recorded pose %d (effort |max|=%.2f). Reposition or Ctrl-C.",
+          "Recorded pose %d (effort |max|=%.2f). Lowering; reposition or"
+          " q+Enter to finish.",
           len(qpos_buf),
           np.nanmax(np.abs(eff_buf[-1])),
       )
+      # Lower gently to limp before the next hand-positioning (no sudden drop).
+      _gentle_release(arm, q_des, model, num_joints, _RELEASE_GRACE)
   except KeyboardInterrupt:
     print("\nFinishing.")
   finally:
@@ -355,16 +381,7 @@ def main() -> None:
       logger.info("Saved %d samples to %s", len(qpos_buf), args.out_path)
     else:
       logger.warning("No samples collected; nothing saved.")
-    # Hold a moment so you can support the arm before it goes limp.
-    if q_des is not None and model is not None:
-      print("Support the arm -- going limp in 2s...")
-      end = time.monotonic() + 2.0
-      while time.monotonic() < end:
-        try:
-          _hold_ff(arm, q_des, model, num_joints)
-        except (RuntimeError, ValueError, OSError):
-          break
-        time.sleep(0.02)
+    # Just relax (go limp) on exit -- no holding the last pose.
     try:
       for i in range(num_joints):
         arm.command_joint_torque_mit(i, 0.0)
