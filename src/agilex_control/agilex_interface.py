@@ -195,15 +195,15 @@ class ArmInterface:
     Returns:
       bool: True if the gripper is enabled, False otherwise
     """
-    status = self._gripper.get_gripper_status()
     deadline = time.time() + _ENABLE_TIMEOUT
-    while not status:
+    status = self._gripper.get_gripper_status()
+    while status is None:
       if time.time() >= deadline:
         raise TimeoutError(
             "Failed to read gripper status: gripper status is None"
         )
+      time.sleep(0.01)
       status = self._gripper.get_gripper_status()
-
     return status.msg.foc_status.driver_enable_status
 
   def is_enabled(self) -> bool:
@@ -215,38 +215,42 @@ class ArmInterface:
     """
     return self.is_arm_enabled() and self.is_gripper_enabled()
 
-  def enable_arm(self) -> bool:
-    """Enables all joint motors, returning whether they report enabled."""
-    enable_deadline = time.time() + _ENABLE_TIMEOUT
+  def enable_arm(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
+    """Enables all joint motors, retrying for up to ``timeout`` seconds.
 
+    Returns:
+      bool: True if the joints report enabled. Raises error on timeout.
+    """
+    deadline = time.time() + timeout
     while not self._arm.enable():
-      if time.time() >= enable_deadline:
-        raise TimeoutError("Arm failed to enable in time")
+      if time.time() >= deadline:
+        raise TimeoutError("Timed out while trying to enable the arm")
       time.sleep(0.01)
-
     return True
 
-  def enable_gripper(self) -> bool:
-    """
-    The gripper enables takes time to enable itself and needs to receive
-    msgs which sometimes takes time. Sending a gripper message forces the
-    drivers to enable
-    """
-    status = self._gripper.get_gripper_status()
-    deadline = time.time() + _ENABLE_TIMEOUT
-    while not status:
-      if time.time() >= deadline:
-        raise TimeoutError(
-            "Timed out trying to read gripper status while trying to enable"
-        )
+  def enable_gripper(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
+    """Enables the gripper, retrying for up to ``timeout`` seconds.
 
+    The gripper driver enables itself on receiving a command, so while it
+    reports disabled we resend a move to its current position (holding it in
+    place) until it reports enabled.
+
+    Returns:
+      bool: True if the gripper reports enabled, False if it did not before
+      the timeout.
+    """
+    deadline = time.time() + timeout
+    while True:
       status = self._gripper.get_gripper_status()
-      if status and not status.msg.foc_status.driver_enable_status:
+      if status is not None:
+        if status.msg.foc_status.driver_enable_status:
+          return True
         self._gripper.move_gripper_m(
             value=status.msg.value, force=status.msg.force
         )
-
-    return status.msg.foc_status.driver_enable_status
+      if time.time() >= deadline:
+        raise TimeoutError("Timed out while trying to enable the gripper")
+      time.sleep(0.01)
 
   def disable_arm(self) -> bool:
     """Disables all joint motors, returning whether they report disabled.
