@@ -40,8 +40,6 @@ def main() -> None:
 
   arm = agilex_interface.ArmInterface(can_port=ports[0], arm_type=arm_type)
   try:
-    arm.set_installation_pos(agilex_interface.ArmInstallationPos.UPRIGHT)
-
     # Enable the motors, retrying until they report enabled. The robust enable
     # loop will move to agilex_init once it is ported (mirroring piper_init).
     print("enabling arm")
