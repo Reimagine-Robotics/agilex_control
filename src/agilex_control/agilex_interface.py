@@ -424,9 +424,8 @@ class ArmInterface:
     """
     Commands a single joint via MIT control to a given angle.
 
-    Requires MIT mode (see set_mit_mode). pyAgxArm applies the per-model b/c
-    scaling and the per-firmware wire torque limit internally, so torque_ff is
-    passed as raw physical Nm.
+    Requires MIT mode (see set_mit_mode). torque_ff is the feed-forward torque
+    in Nm, in the same units the arm reports measured joint torque.
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
@@ -449,7 +448,8 @@ class ArmInterface:
     """
     Commands a single joint via pure MIT torque (zero PD gains).
 
-    Requires MIT mode (see set_mit_mode).
+    Requires MIT mode (see set_mit_mode). torque is the feed-forward torque in
+    Nm, in the same units the arm reports measured joint torque.
 
     Args:
       joint_index (int): Zero-based joint index (0 to joint_nums - 1).
