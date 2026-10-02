@@ -66,6 +66,15 @@ def main() -> None:
       choices=[arm_type.name for arm_type in agilex_interface.ArmType],
       help="Arm model.",
   )
+  parser.add_argument(
+      "--compensate-c",
+      action="store_true",
+      help=(
+          "Multiply the command by the per-joint c coefficient. Set this only"
+          " for a model whose torque was calibrated in the k*b frame (without"
+          " c); leave off for a model calibrated in this arm's k*b*c frame."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -112,6 +121,15 @@ def main() -> None:
         else 0.018
     )
 
+    # Correct a non-base arm's gearing: the firmware runs MIT commands at
+    # base-Piper gearing, so a non-base arm (e.g. piperH wrist) over/under-
+    # delivers by base(k*b)/arm(k*b). Identity for base Piper and Nero.
+    # --compensate-c adds the c factor for a k*b-frame (no-c) model.
+    command_scale = np.array(
+        arm.direct_scaling_factors(compensate_c=args.compensate_c)
+    )
+    logger.info("command scale: %s", command_scale)
+
     with agilex_control.MitJointPositionController(
         arm,
         kp_gains=5.0,  # Unused by command_torques; only for the stop() park.
@@ -130,7 +148,7 @@ def main() -> None:
         hover_torque = model.predict(qpos)
         # Small per-joint damping so the arm stays backdrivable but settles.
         stability_torque = -qvel * dgain
-        command = hover_torque + stability_torque
+        command = (hover_torque + stability_torque) * command_scale
         controller.command_torques(command.tolist())
         time.sleep(0.005)
     # Leaving the controller context parks the arm at its rest pose and relaxes.

@@ -9,6 +9,7 @@ the per-argument values.
 
 import types
 
+import pyAgxArm
 import pytest
 
 from agilex_control import agilex_interface
@@ -132,3 +133,56 @@ def test_get_gripper_state_raises_in_angle_mode():
   arm = _interface_with_fake_gripper(_FakeGripper(mode="angle"))
   with pytest.raises(RuntimeError):
     arm.get_gripper_state()
+
+
+def _arm_with_config(arm_type) -> agilex_interface.ArmInterface:
+  """ArmInterface (no connect) with the config for arm_type set."""
+  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
+  arm._arm_type = arm_type
+  arm._firmware_version = "S-V1.8-6"  # modern driver (> 1.8.post2)
+  arm._config = pyAgxArm.create_agx_arm_config(
+      robot=agilex_interface._ARM_MODEL[arm_type]
+  )
+  return arm
+
+
+def test_direct_scaling_factors_base_piper_is_identity():
+  # Base Piper is the reference, so every joint scales by 1.0.
+  arm = _arm_with_config(agilex_interface.ArmType.PIPER)
+  assert arm.direct_scaling_factors() == pytest.approx([1.0] * 6)
+
+
+def test_direct_scaling_factors_piper_h_scales_wrist_and_j2():
+  # piperH differs from base Piper on j2 (k and b) and j4/j5 (b), so those get
+  # the base(k*b)/arm(k*b) ratio; j1/j3/j6 match base and stay 1.0.
+  arm = _arm_with_config(agilex_interface.ArmType.PIPER_H)
+  assert arm.direct_scaling_factors() == pytest.approx(
+      [1.0, 1.143, 1.0, 0.588, 0.588, 1.0], abs=1e-3
+  )
+
+
+def test_direct_scaling_factors_compensate_c_adds_c_factor():
+  # A piper_sdk-calibrated model also needs the c factor: scale *= c, so the
+  # piperH wrist (c=0.757) and j6 (c=1.287) shift from the no-c case.
+  arm = _arm_with_config(agilex_interface.ArmType.PIPER_H)
+  assert arm.direct_scaling_factors(compensate_c=True) == pytest.approx(
+      [1.0, 1.143, 1.0, 0.445, 0.445, 1.287], abs=1e-3
+  )
+
+
+def test_direct_scaling_factors_nero_is_unscaled():
+  # Nero is a different arm family (7 joints), not defined relative to base
+  # Piper, so it is left unscaled.
+  arm = _arm_with_config(agilex_interface.ArmType.NERO)
+  scale = arm.direct_scaling_factors()
+  assert scale == pytest.approx([1.0] * 7)
+  assert len(scale) == 7
+
+
+def test_direct_scaling_factors_rejects_legacy_firmware():
+  # The legacy default driver (<= 1.8.post2) divides by b*c, so this ratio
+  # would double-correct -- it should raise rather than return a wrong scale.
+  arm = _arm_with_config(agilex_interface.ArmType.PIPER_H)
+  arm._firmware_version = "S-V1.8-2"
+  with pytest.raises(RuntimeError):
+    arm.direct_scaling_factors()
