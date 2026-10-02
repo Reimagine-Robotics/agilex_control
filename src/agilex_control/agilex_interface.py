@@ -96,6 +96,9 @@ class ArmInterface:
     # both are set by _connect().
     self._arm: Any = None
     self._gripper: Any = None
+    # The pyAgxArm config dict used to build the connected driver (holds the
+    # per-model joint torque coefficients k/b/c). Set by _connect().
+    self._config: dict[str, Any] | None = None
     self._firmware_version: str | None = None
     # Cached per-joint angle limits (static config; read from the arm on first
     # get_joint_limits, invalidated by set_joint_limits).
@@ -115,14 +118,13 @@ class ArmInterface:
     """
     robot = _ARM_MODEL[self._arm_type]
 
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=_DEFAULT_FIRMWARE_PROFILE,
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
     deadline = time.time() + timeout
@@ -151,14 +153,13 @@ class ArmInterface:
 
     # The firmware needs a specific driver: reconnect with it.
     self._arm.disconnect()
-    self._arm = pyAgxArm.AgxArmFactory.create_arm(
-        pyAgxArm.create_agx_arm_config(
-            robot=robot,
-            firmeware_version=firmware_profile,  # pyAgxArm's spelling.
-            interface=self._can_interface,
-            channel=self._can_port,
-        )
+    self._config = pyAgxArm.create_agx_arm_config(
+        robot=robot,
+        firmeware_version=firmware_profile,  # pyAgxArm's spelling.
+        interface=self._can_interface,
+        channel=self._can_port,
     )
+    self._arm = pyAgxArm.AgxArmFactory.create_arm(self._config)
     self._init_gripper()
     self._arm.connect()
 
@@ -285,6 +286,84 @@ class ArmInterface:
   def get_num_joints(self) -> int:
     """Returns the number of joints on the arm."""
     return self._arm.joint_nums
+
+  def get_joint_torque_coefficients(
+      self,
+  ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    """Returns the per-joint torque coefficients (k, b, c) for this arm.
+
+    Read from the per-model config, so they are correct for whatever arm type
+    this instance is. Measured joint torque decodes as current * k * b * c.
+    """
+    if self._config is None:
+      raise RuntimeError("Not connected; no arm config available.")
+    return (
+        tuple(self._config["joint_torque_k"]),
+        tuple(self._config["joint_torque_b"]),
+        tuple(self._config["joint_torque_c"]),
+    )
+
+  def direct_scaling_factors(
+      self, compensate_c: bool = False
+  ) -> tuple[float, ...]:
+    """Per-joint command-torque scale for this arm.
+
+    The firmware executes MIT feed-forward torque at base-Piper gearing, so a
+    non-base arm's command is off by the per-joint ratio
+    base_piper(k*b)/arm(k*b) -- multiply the commanded torque by this to cancel
+    it (identity for base Piper). Not defined relative to base Piper for Nero (a
+    different arm family), so Nero is left unscaled.
+
+    Only valid for the modern drivers (firmware > 1.8.post2: v183/v188/v189):
+    feedback decodes current*k*b*c, but they divide the command by c only (not k
+    or b). So c cancels in software; k and b do not -- but the firmware applies
+    base-Piper's k*b, so only the arm-vs-base ratio remains. Raises for the
+    legacy default driver (<= 1.8.post2), which divides by b*c.
+
+    Args:
+      compensate_c: Additionally multiply by the per-joint c coefficient. Set
+        this to deploy a model whose torque was calibrated in the current*k*b
+        frame, without the c that this arm's feedback and commands carry; leave
+        False for a model calibrated in this arm's own current*k*b*c frame.
+
+    Returns:
+      One scale factor per joint (all 1.0 for base Piper and for Nero, unless
+      compensate_c scales a c != 1 joint).
+    """
+    k, b, c = self.get_joint_torque_coefficients()
+    if self._arm_type == ArmType.NERO:
+      # Nero has no base-Piper gearing relationship; c is all 1.0 so
+      # compensate_c is a no-op there too.
+      return tuple(1.0 for _ in k)
+    # The legacy default driver (<= 1.8.post2) divides the command by b*c, so it
+    # already handles b and this ratio would double-correct it; fail loud rather
+    # than return a wrong scale.
+    firmware = self.get_firmware_version()
+    if firmware is not None and (
+        packaging_version.parse(firmware)
+        <= packaging_version.parse("1.8.post2")
+    ):
+      raise RuntimeError(
+          "direct_scaling_factors supports firmware > 1.8.post2 (modern"
+          f" driver); this arm reports {firmware} (legacy default driver)."
+      )
+    base = pyAgxArm.create_agx_arm_config(robot=_ARM_MODEL[ArmType.PIPER])
+    base_k = base["joint_torque_k"]
+    base_b = base["joint_torque_b"]
+    # Ratio is k*b, not k*b*c: feedback decodes current*k*b*c but the modern
+    # command drivers (v183/v188/v189) divide t_ff by c only (not k or b), so c
+    # cancels and only the k*b gearing (vs base Piper) remains. Drivers are
+    # version-specific but parsers are not: v183 (1.8.post6) has no parser and
+    # inherits the shared default one. Feedback (default parser) vs command
+    # (v183 driver):
+    # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/pyAgxArm/protocols/can_protocol/drivers/piper/default/parser.py
+    # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/pyAgxArm/protocols/can_protocol/drivers/piper/versions/v183/driver.py
+    scale = [
+        (bk * bb) / (ak * ab) for bk, bb, ak, ab in zip(base_k, base_b, k, b)
+    ]
+    if compensate_c:
+      scale = [s * ci for s, ci in zip(scale, c)]
+    return tuple(scale)
 
   def get_joint_positions(self) -> list[float]:
     """
