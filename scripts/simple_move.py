@@ -1,9 +1,10 @@
 """Example of moving the arm a small amount and opening/closing the gripper.
 
 To run this example:
-python3 scripts/simple_move.py
+python3 scripts/simple_move.py [--arm_type piper|piper_h|nero]
 """
 
+import argparse
 import time
 
 from agilex_control import agilex_control, agilex_interface, can_utils
@@ -11,8 +12,27 @@ from agilex_control import agilex_control, agilex_interface, can_utils
 # How far to nudge the 2nd-to-last joint, in radians.
 _MOVE_DELTA = 0.2
 
+# Arm models with a rest pose to park at on exit. Models without one (Piper X,
+# Piper L) would relax wherever they stop, so this example does not offer them.
+_SUPPORTED_ARM_TYPES = (
+    agilex_interface.ArmType.PIPER,
+    agilex_interface.ArmType.PIPER_H,
+    agilex_interface.ArmType.NERO,
+)
+
 
 def main() -> None:
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument(
+      "--arm_type",
+      type=str,
+      default="piper",
+      choices=[t.name.lower() for t in _SUPPORTED_ARM_TYPES],
+      help="Model of arm to control.",
+  )
+  args = parser.parse_args()
+  arm_type = agilex_interface.ArmType[args.arm_type.upper()]
+
   print(
       "This script will move the 2nd-to-last joint of the arm a small amount."
   )
@@ -26,18 +46,12 @@ def main() -> None:
     )
   print(f"Using CAN port: {ports[0]}")
 
-  arm = agilex_interface.ArmInterface(can_port=ports[0])
+  arm = agilex_interface.ArmInterface(can_port=ports[0], arm_type=arm_type)
   try:
-    arm.set_installation_pos(agilex_interface.ArmInstallationPos.UPRIGHT)
-
-    # Enable the motors, retrying until they report enabled. The robust enable
-    # loop will move to agilex_init once it is ported (mirroring piper_init).
+    # Enable the motors; enable_arm retries until they report enabled.
     print("enabling arm")
-    deadline = time.monotonic() + 5.0
-    while not arm.enable_arm():
-      if time.monotonic() >= deadline:
-        raise TimeoutError("Timed out enabling the arm.")
-      time.sleep(0.1)
+    if not arm.enable_arm(timeout=5.0):
+      raise TimeoutError("Timed out enabling the arm.")
 
     # Open then close the gripper (commanding it enables it implicitly).
     print("testing gripper: open then close")
