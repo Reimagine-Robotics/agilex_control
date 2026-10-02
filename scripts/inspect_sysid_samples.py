@@ -55,6 +55,16 @@ def main() -> None:
     )
     model_tau = np.array([np.asarray(model.predict(q)) for q in qpos])
 
+  print("Per-joint measured effort across poses (Nm) -- a tiny span means that")
+  print("joint is never loaded, so it can't be identified:")
+  for j in range(num_joints):
+    col = eff[:, j]
+    print(
+        f"  j{j + 1}: min={col.min():6.2f}  mean={col.mean():6.2f}"
+        f"  max={col.max():6.2f}  span={col.max() - col.min():5.2f}"
+    )
+  print()
+
   std_max = std.max(axis=1)
   std_med = float(np.median(std_max))
   std_thresh = args.std_factor * max(std_med, 1e-6)
