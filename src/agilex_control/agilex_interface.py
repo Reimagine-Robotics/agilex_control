@@ -199,8 +199,9 @@ class ArmInterface:
     deadline = time.time() + _ENABLE_TIMEOUT
     while not status:
       if time.time() >= deadline:
-        raise TimeoutError("Failed to read gripper status: gripper status is " \
-        "None")
+        raise TimeoutError(
+            "Failed to read gripper status: gripper status is None"
+        )
       status = self._gripper.get_gripper_status()
 
     return status.msg.foc_status.driver_enable_status
@@ -235,8 +236,9 @@ class ArmInterface:
     deadline = time.time() + _ENABLE_TIMEOUT
     while not status:
       if time.time() >= deadline:
-        raise TimeoutError("Time out trying to read gripper status while" \
-        "trying to read gripper status while trying to enable")
+        raise TimeoutError(
+            "Timed out trying to read gripper status while trying to enable"
+        )
 
       status = self._gripper.get_gripper_status()
       if status and not status.msg.foc_status.driver_enable_status:
