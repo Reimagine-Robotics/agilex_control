@@ -65,6 +65,22 @@ def main() -> None:
     )
   print()
 
+  if model_tau is not None:
+    resid = eff - model_tau
+    print("Per-joint residual (measured - model) across poses, N.m -- point")
+    print("--model-path at the FITTED model to see how well it matched each")
+    print(
+        "joint. A large rms/mean here means the fit did NOT match that joint:"
+    )
+    for j in range(num_joints):
+      col = resid[:, j]
+      rms = float(np.sqrt(np.mean(col**2)))
+      print(
+          f"  j{j + 1}: rms={rms:5.2f}  max|r|={np.abs(col).max():5.2f}"
+          f"  mean={col.mean():+5.2f}"
+      )
+    print()
+
   std_max = std.max(axis=1)
   std_med = float(np.median(std_max))
   std_thresh = args.std_factor * max(std_med, 1e-6)
