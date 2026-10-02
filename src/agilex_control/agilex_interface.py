@@ -245,9 +245,14 @@ class ArmInterface:
       if status is not None:
         if status.msg.foc_status.driver_enable_status:
           return True
-        self._gripper.move_gripper_m(
+        if status.msg.mode == "width":
+          self._gripper.move_gripper_m(
+              value=status.msg.value, force=status.msg.force
+          )
+        if status.msg.mode == "angle":
+          self._gripper.move_gripper_deg(
             value=status.msg.value, force=status.msg.force
-        )
+          )
       if time.time() >= deadline:
         raise TimeoutError("Timed out while trying to enable the gripper")
       time.sleep(0.01)
