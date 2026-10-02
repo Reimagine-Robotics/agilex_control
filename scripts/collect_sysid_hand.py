@@ -28,8 +28,11 @@ Ctrl-C saves what was collected, then relaxes.
 
 By default each pose is captured when you press Enter (q+Enter to finish) --
 handy when the robot is within reach. Use --trigger countdown for a timed
-capture when it isn't. Use --append to add poses to an existing .npz (e.g. to
-top up a dataset with wrist-loaded poses so j5 becomes identifiable).
+capture when it isn't. Use --append to add poses to an existing .npz. The
+feed-forward is ramped in on takeover (--ramp-time) so the arm doesn't jump.
+Use --bidirectional to settle each pose from both directions and average, which
+cancels static friction (the fix for a light joint like j5 that floats because
+its gravity torque is small compared to friction).
 
 To run:
   python3 scripts/collect_sysid_hand.py --model-path <arm.xml> \
@@ -70,10 +73,12 @@ def _measure_torques(arm, num_joints: int) -> np.ndarray:
   return out
 
 
-def _hold_ff(arm, q_des: np.ndarray, model, num_joints: int) -> np.ndarray:
-  """One position-hold tick with gravity feed-forward; returns current qpos."""
+def _hold_ff(
+    arm, q_des: np.ndarray, model, num_joints: int, ff_scale: float = 1.0
+) -> np.ndarray:
+  """One position-hold tick with (scaled) gravity feed-forward; returns qpos."""
   q = np.array(arm.get_joint_positions())
-  ff = np.asarray(model.predict(q))
+  ff = np.asarray(model.predict(q)) * ff_scale
   for i in range(num_joints):
     arm.command_joint_position_mit(
         i,
@@ -83,6 +88,44 @@ def _hold_ff(arm, q_des: np.ndarray, model, num_joints: int) -> np.ndarray:
         torque_ff=float(ff[i]),
     )
   return q
+
+
+def _ramped_takeover(arm, q_des, model, num_joints, ramp_time) -> None:
+  """Ramp the gravity feed-forward 0->1 while holding q_des (you keep holding).
+
+  Ramping avoids the lurch from slamming the full feed-forward on at once (if
+  the model slightly over-predicts, a step command makes the joint jump).
+  """
+  start = time.monotonic()
+  while True:
+    frac = (time.monotonic() - start) / ramp_time
+    if frac >= 1.0:
+      return
+    _hold_ff(arm, q_des, model, num_joints, ff_scale=frac)
+    time.sleep(1.0 / _CONTROL_FREQ)
+
+
+def _settle(arm, target, model, num_joints, settle_time) -> None:
+  """Hold target with full feed-forward for settle_time (for bidir approach)."""
+  end = time.monotonic() + settle_time
+  while time.monotonic() < end:
+    _hold_ff(arm, target, model, num_joints)
+    time.sleep(1.0 / _CONTROL_FREQ)
+
+
+def _record(arm, q_des, model, num_joints):
+  """Average qpos/effort over _SAMPLE_DURATION while holding q_des."""
+  qpos_s: list[np.ndarray] = []
+  eff_s: list[np.ndarray] = []
+  end = time.monotonic() + _SAMPLE_DURATION
+  while time.monotonic() < end:
+    q = _hold_ff(arm, q_des, model, num_joints)
+    eff_s.append(_measure_torques(arm, num_joints))
+    qpos_s.append(q)
+    time.sleep(1.0 / _CONTROL_FREQ)
+  qp = np.stack(qpos_s, axis=0)
+  ef = np.stack(eff_s, axis=0)
+  return qp.mean(axis=0), np.nanmean(ef, axis=0), np.nanstd(ef, axis=0)
 
 
 def _wait_limp_for_key(arm, model, num_joints: int, pose_num: int) -> bool:
@@ -155,6 +198,36 @@ def main() -> None:
           "Append to an existing --out-path .npz instead of starting fresh --"
           " e.g. to top up a dataset with more wrist-loaded poses for j5."
       ),
+  )
+  parser.add_argument(
+      "--ramp-time",
+      type=float,
+      default=0.8,
+      help=(
+          "Seconds to ramp the gravity feed-forward in on takeover (keep"
+          " holding during it). Avoids the jump from applying full FF at once."
+      ),
+  )
+  parser.add_argument(
+      "--bidirectional",
+      action="store_true",
+      help=(
+          "Record each pose settled from BOTH directions and average, to cancel"
+          " static friction (stiction) -- the fix for a joint like j5 that"
+          " floats because its gravity signal is small vs friction."
+      ),
+  )
+  parser.add_argument(
+      "--bidir-delta",
+      type=float,
+      default=0.12,
+      help="Overshoot (rad) for the two approach directions (--bidirectional).",
+  )
+  parser.add_argument(
+      "--settle-time",
+      type=float,
+      default=0.6,
+      help="Seconds to settle at each approach target in --bidirectional.",
   )
   args = parser.parse_args()
 
@@ -234,27 +307,36 @@ def main() -> None:
           time.sleep(0.02)
 
       q_des = np.array(arm.get_joint_positions())
-      print(f"  takeover at q(deg)={np.degrees(q_des)} -- LET GO.")
+      print(f"  takeover at q(deg)={np.degrees(q_des)} -- KEEP HOLDING.")
+      # Ramp the feed-forward in (no jump), then you release.
+      _ramped_takeover(arm, q_des, model, num_joints, args.ramp_time)
+      print("  LET GO now.")
+      _settle(arm, q_des, model, num_joints, _RELEASE_GRACE)
 
-      # Hold with gravity feed-forward; grace period so you can release.
-      grace_end = time.monotonic() + _RELEASE_GRACE
-      while time.monotonic() < grace_end:
-        _hold_ff(arm, q_des, model, num_joints)
-        time.sleep(1.0 / _CONTROL_FREQ)
+      if args.bidirectional:
+        # Settle at q_des from above and from below; average to cancel stiction.
+        delta = args.bidir_delta * np.ones(num_joints)
+        _settle(arm, q_des + delta, model, num_joints, args.settle_time)
+        _settle(arm, q_des, model, num_joints, args.settle_time)
+        q_a, eff_a, std_a = _record(arm, q_des, model, num_joints)
+        _settle(arm, q_des - delta, model, num_joints, args.settle_time)
+        _settle(arm, q_des, model, num_joints, args.settle_time)
+        q_b, eff_b, std_b = _record(arm, q_des, model, num_joints)
+        mean_q = 0.5 * (q_a + q_b)
+        mean_eff = 0.5 * (eff_a + eff_b)
+        std = 0.5 * (std_a + std_b)
+        logger.info(
+            "  bidir j5 from above/below: %.2f / %.2f -> mean %.2f",
+            eff_a[4],
+            eff_b[4],
+            mean_eff[4],
+        )
+      else:
+        mean_q, mean_eff, std = _record(arm, q_des, model, num_joints)
 
-      # Record averaged qpos/effort while holding.
-      qpos_s: list[np.ndarray] = []
-      eff_s: list[np.ndarray] = []
-      rec_end = time.monotonic() + _SAMPLE_DURATION
-      while time.monotonic() < rec_end:
-        q = _hold_ff(arm, q_des, model, num_joints)
-        eff_s.append(_measure_torques(arm, num_joints))
-        qpos_s.append(q)
-        time.sleep(1.0 / _CONTROL_FREQ)
-
-      qpos_buf.append(np.stack(qpos_s, axis=0).mean(axis=0))
-      eff_buf.append(np.nanmean(np.stack(eff_s, axis=0), axis=0))
-      std_buf.append(np.nanstd(np.stack(eff_s, axis=0), axis=0))
+      qpos_buf.append(mean_q)
+      eff_buf.append(mean_eff)
+      std_buf.append(std)
       logger.info(
           "Recorded pose %d (effort |max|=%.2f). Reposition or Ctrl-C.",
           len(qpos_buf),
