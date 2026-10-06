@@ -176,6 +176,38 @@ class ArmInterface:
     if self._arm is not None:
       self._arm.disconnect()
 
+  def is_arm_enabled(self) -> bool:
+    """
+    Checks if arm is enabled
+
+    Return:
+    True if all joints in the arm are enabled, false otherwise.
+    """
+    status_list = self._arm.get_joints_enable_status_list()
+
+    return all([status is True for status in status_list])
+
+  def is_gripper_enabled(self) -> bool:
+    """
+    Checks if gripper is enabled
+
+    Return:
+    True if gripper is enabled, false otherwise
+    """
+    status = self._gripper.get_gripper_status()
+    if status is not None:
+      return status.msg.foc_status.driver_enable_status
+
+    return False
+
+  def is_enabled(self) -> bool:
+    """
+    Check if arm and gripper are enabled
+
+    Returns True if all joints + gripper are enabled.
+    """
+    return self.is_arm_enabled() and self.is_gripper_enabled()
+
   def enable_arm(self) -> bool:
     """Enables all joint motors, returning whether they report enabled."""
     return self._arm.enable()
@@ -186,6 +218,23 @@ class ArmInterface:
     WARNING: this powers down the joints; an unsupported arm will drop.
     """
     return self._arm.disable()
+
+  def disable_gripper(self) -> bool:
+    return self._gripper.disable_gripper()
+
+  def set_emergency_stop(self) -> None:
+    """
+    Set the robotic arm to emergency stop state. If the arm joints are in a
+    raised position when executed, the arm will slowly descend with constant
+    damping (it will not drop immediately).
+    """
+    self._arm.electronic_emergency_stop()
+
+  def clear_joint_errors(self) -> None:
+    """
+    Clears errors on all joints
+    """
+    self._arm.clear_joint_error(255)
 
   def get_firmware_version(self) -> str | None:
     """Return the arm's firmware version, normalized (e.g. "1.8.post6").
