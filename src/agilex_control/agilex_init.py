@@ -12,10 +12,6 @@ from agilex_control import agilex_interface
 _SHORT_WAIT = 0.1
 _LONG_WAIT = 0.5
 
-# Minimum gap between resets, comfortably past the motors-off delay below:
-# re-sending while the motors are still cutting out restarts the wait.
-_MIN_RESET_INTERVAL_SEC = 2.0
-
 
 def _create_timeout(
     seconds: float,
@@ -43,7 +39,7 @@ def disable_gripper(
   while True:
     arm_interface.disable_gripper()
     time.sleep(_SHORT_WAIT)
-    if not arm_interface.is_gripper_enabled():
+    if arm_interface.is_gripper_disabled():
       break
 
     timeout_trigger()
@@ -59,12 +55,20 @@ def enable_gripper(
   Enables the gripper.
   """
   deadline = time.time() + timeout_seconds
+  last_error: RuntimeError | None = None
   while not arm_interface.is_gripper_enabled():
     # Commanding the gripper to hold its current state enables it implicitly.
-    value, force = arm_interface.get_gripper_state()
-    arm_interface.command_gripper(position=value, force=force)
+    # Gripper status or parameter feedback may not have arrived yet, so retry
+    # until the deadline rather than failing on the first missing frame.
+    try:
+      value, force = arm_interface.get_gripper_state()
+      arm_interface.command_gripper(position=value, force=force)
+    except RuntimeError as e:
+      last_error = e
     if time.time() >= deadline:
-      raise TimeoutError("Timed out while trying to enable the gripper")
+      raise TimeoutError(
+          "Timed out while trying to enable the gripper"
+      ) from last_error
     time.sleep(0.01)
 
 
@@ -86,7 +90,7 @@ def disable_arm(
   while True:
     arm.disable_arm()
     time.sleep(_SHORT_WAIT)
-    if not arm.is_arm_enabled():
+    if arm.is_arm_disabled():
       break
 
     timeout_trigger()

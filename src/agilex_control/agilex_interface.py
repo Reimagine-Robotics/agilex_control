@@ -200,6 +200,32 @@ class ArmInterface:
 
     return False
 
+  def is_arm_disabled(self) -> bool:
+    """
+    Checks if arm is disabled
+
+    Return:
+    True if all joints in the arm report disabled, false otherwise. Not the
+    same as `not is_arm_enabled()`, which is true once any one joint disables.
+    """
+    status_list = self._arm.get_joints_enable_status_list()
+
+    return all(status is False for status in status_list)
+
+  def is_gripper_disabled(self) -> bool:
+    """
+    Checks if gripper is disabled
+
+    Return:
+    True if gripper reports disabled, false otherwise (including when no
+    gripper feedback is available).
+    """
+    status = self._gripper.get_gripper_status()
+    if status is not None:
+      return not status.msg.foc_status.driver_enable_status
+
+    return False
+
   def is_enabled(self) -> bool:
     """
     Check if arm and gripper are enabled
@@ -280,6 +306,21 @@ class ArmInterface:
     if any(state is None for state in states):
       raise RuntimeError("No motor state feedback available.")
     return [state.msg.velocity for state in states]
+
+  def get_joint_torques(self) -> list[float]:
+    """
+    Returns the current measured joint torques as a sequence of floats (Nm).
+
+    Returns:
+      Sequence[float]: Joint torques in Nm.
+    """
+    states = [
+        self._arm.get_motor_states(i)
+        for i in range(1, self.get_num_joints() + 1)
+    ]
+    if any(state is None for state in states):
+      raise RuntimeError("No motor state feedback available.")
+    return [state.msg.torque for state in states]
 
   def get_joint_limits(self) -> dict[str, list[float]]:
     """
