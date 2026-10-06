@@ -205,12 +205,21 @@ class ArmInterface:
     Checks if arm is disabled
 
     Return:
-    True if all joints in the arm report disabled, false otherwise. Not the
-    same as `not is_arm_enabled()`, which is true once any one joint disables.
+    True if all joints in the arm report disabled, false otherwise (including
+    when any joint has no driver feedback yet). Not the same as
+    `not is_arm_enabled()`, which is true once any one joint disables.
     """
-    status_list = self._arm.get_joints_enable_status_list()
+    # Read driver states directly: get_joints_enable_status_list() reports
+    # False for a joint with no feedback, which would look like disabled.
+    states = [
+        self._arm.get_driver_states(i)
+        for i in range(1, self.get_num_joints() + 1)
+    ]
 
-    return all(status is False for status in status_list)
+    return all(
+        state is not None and not state.msg.foc_status.driver_enable_status
+        for state in states
+    )
 
   def is_gripper_disabled(self) -> bool:
     """

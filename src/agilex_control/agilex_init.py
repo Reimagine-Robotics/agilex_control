@@ -63,6 +63,7 @@ def enable_gripper(
     try:
       value, force = arm_interface.get_gripper_state()
       arm_interface.command_gripper(position=value, force=force)
+      last_error = None
     except RuntimeError as e:
       last_error = e
     if time.time() >= deadline:
