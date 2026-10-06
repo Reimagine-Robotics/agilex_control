@@ -185,7 +185,7 @@ class ArmInterface:
     """
     status_list = self._arm.get_joints_enable_status_list()
 
-    return all([status is True for status in status_list])
+    return all(status is True for status in status_list)
 
   def is_gripper_enabled(self) -> bool:
     """

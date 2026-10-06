@@ -7,7 +7,12 @@ python3 scripts/simple_move.py [--arm_type piper|piper_h|nero]
 import argparse
 import time
 
-from agilex_control import agilex_control, agilex_init, agilex_interface, can_utils
+from agilex_control import (
+    agilex_control,
+    agilex_init,
+    agilex_interface,
+    can_utils,
+)
 
 # How far to nudge the 2nd-to-last joint, in radians.
 _MOVE_DELTA = 0.2

@@ -123,7 +123,7 @@ def clear_joint_errors(
   was_enabled = arm.is_arm_enabled()
   arm.clear_joint_errors()
   if was_enabled:
-    enable_arm(arm)
+    enable_arm(arm, timeout_seconds=timeout_seconds)
 
 
 def reset_arm(
