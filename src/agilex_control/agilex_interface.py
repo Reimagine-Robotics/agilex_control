@@ -68,9 +68,6 @@ _DEFAULT_FIRMWARE_PROFILE = "default"
 # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/docs/effector/agx_gripper/agx_gripper_api.md
 _GRIPPER_FORCE_MAX = 3.0
 
-# timeout for enable
-_ENABLE_TIMEOUT = 8.0
-
 
 class ArmInterface:
   """A thin wrapper around pyAgxArm for a single AgileX arm.
@@ -137,7 +134,7 @@ class ArmInterface:
         raise TimeoutError(
             f"Timed out waiting for firmware on {self._can_port}."
         )
-      time.sleep(0.1)
+      time.sleep(0.5)
       firmware = self._arm.get_firmware()
     software_version = firmware["software_version"]
     self._firmware_version = software_version
@@ -181,81 +178,74 @@ class ArmInterface:
 
   def is_arm_enabled(self) -> bool:
     """
-    Checks if the arms joints are enabled
+    Checks if arm is enabled
 
-    Returns:
-      bool: True if all the joints are enabled, False otherwise
+    Return:
+    True if all joints in the arm are enabled, false otherwise.
     """
     status_list = self._arm.get_joints_enable_status_list()
-    return all(joint_status is True for joint_status in status_list)
+
+    return all(status is True for status in status_list)
 
   def is_gripper_enabled(self) -> bool:
     """
-    Checks if the gripper is enabled
-    Returns:
-      bool: True if the gripper is enabled, False otherwise
+    Checks if gripper is enabled
+
+    Return:
+    True if gripper is enabled, false otherwise
     """
-    deadline = time.time() + _ENABLE_TIMEOUT
     status = self._gripper.get_gripper_status()
-    while status is None:
-      if time.time() >= deadline:
-        raise TimeoutError(
-            "Failed to read gripper status: gripper status is None"
-        )
-      time.sleep(0.01)
-      status = self._gripper.get_gripper_status()
-    return status.msg.foc_status.driver_enable_status
+    if status is not None:
+      return status.msg.foc_status.driver_enable_status
+
+    return False
+
+  def is_arm_disabled(self) -> bool:
+    """
+    Checks if arm is disabled
+
+    Return:
+    True if all joints in the arm report disabled, false otherwise (including
+    when any joint has no driver feedback yet). Not the same as
+    `not is_arm_enabled()`, which is true once any one joint disables.
+    """
+    # Read driver states directly: get_joints_enable_status_list() reports
+    # False for a joint with no feedback, which would look like disabled.
+    states = [
+        self._arm.get_driver_states(i)
+        for i in range(1, self.get_num_joints() + 1)
+    ]
+
+    return all(
+        state is not None and not state.msg.foc_status.driver_enable_status
+        for state in states
+    )
+
+  def is_gripper_disabled(self) -> bool:
+    """
+    Checks if gripper is disabled
+
+    Return:
+    True if gripper reports disabled, false otherwise (including when no
+    gripper feedback is available).
+    """
+    status = self._gripper.get_gripper_status()
+    if status is not None:
+      return not status.msg.foc_status.driver_enable_status
+
+    return False
 
   def is_enabled(self) -> bool:
     """
-    Checks if the robot arm and gripper are enabled
+    Check if arm and gripper are enabled
 
-    Returns:
-      bool: True if the arm and gripper are enabled, False otherwise
+    Returns True if all joints + gripper are enabled.
     """
     return self.is_arm_enabled() and self.is_gripper_enabled()
 
-  def enable_arm(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
-    """Enables all joint motors, retrying for up to ``timeout`` seconds.
-
-    Returns:
-      bool: True if the joints report enabled. Raises error on timeout.
-    """
-    deadline = time.time() + timeout
-    while not self._arm.enable():
-      if time.time() >= deadline:
-        raise TimeoutError("Timed out while trying to enable the arm")
-      time.sleep(0.01)
-    return True
-
-  def enable_gripper(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
-    """Enables the gripper, retrying for up to ``timeout`` seconds.
-
-    The gripper driver enables itself on receiving a command, so while it
-    reports disabled we resend a move to its current position (holding it in
-    place) until it reports enabled.
-
-    Returns:
-      bool: True if the gripper reports enabled, False if it did not before
-      the timeout.
-    """
-    deadline = time.time() + timeout
-    while True:
-      status = self._gripper.get_gripper_status()
-      if status is not None:
-        if status.msg.foc_status.driver_enable_status:
-          return True
-        if status.msg.mode == "width":
-          self._gripper.move_gripper_m(
-              value=status.msg.value, force=status.msg.force
-          )
-        if status.msg.mode == "angle":
-          self._gripper.move_gripper_deg(
-              value=status.msg.value, force=status.msg.force
-          )
-      if time.time() >= deadline:
-        raise TimeoutError("Timed out while trying to enable the gripper")
-      time.sleep(0.01)
+  def enable_arm(self) -> bool:
+    """Enables all joint motors, returning whether they report enabled."""
+    return self._arm.enable()
 
   def disable_arm(self) -> bool:
     """Disables all joint motors, returning whether they report disabled.
@@ -265,8 +255,21 @@ class ArmInterface:
     return self._arm.disable()
 
   def disable_gripper(self) -> bool:
-    """Disables the gripper. WARNING: it will go limp and may drop its load."""
     return self._gripper.disable_gripper()
+
+  def set_emergency_stop(self) -> None:
+    """
+    Set the robotic arm to emergency stop state. If the arm joints are in a
+    raised position when executed, the arm will slowly descend with constant
+    damping (it will not drop immediately).
+    """
+    self._arm.electronic_emergency_stop()
+
+  def clear_joint_errors(self) -> None:
+    """
+    Clears errors on all joints
+    """
+    self._arm.clear_joint_error(255)
 
   def get_firmware_version(self) -> str | None:
     """Return the arm's firmware version, normalized (e.g. "1.8.post6").

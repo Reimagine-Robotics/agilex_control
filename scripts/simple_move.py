@@ -7,7 +7,12 @@ python3 scripts/simple_move.py [--arm_type piper|piper_h|nero]
 import argparse
 import time
 
-from agilex_control import agilex_control, agilex_interface, can_utils
+from agilex_control import (
+    agilex_control,
+    agilex_init,
+    agilex_interface,
+    can_utils,
+)
 
 # How far to nudge the 2nd-to-last joint, in radians.
 _MOVE_DELTA = 0.2
@@ -48,10 +53,11 @@ def main() -> None:
 
   arm = agilex_interface.ArmInterface(can_port=ports[0], arm_type=arm_type)
   try:
-    # Enable the motors; enable_arm retries until they report enabled.
+    # Enable the motors; these retry until enabled and raise TimeoutError
+    # otherwise.
     print("enabling arm")
-    if not arm.enable_arm(timeout=5.0):
-      raise TimeoutError("Timed out enabling the arm.")
+    agilex_init.enable_arm(arm)
+    agilex_init.enable_gripper(arm)
 
     # Open then close the gripper (commanding it enables it implicitly).
     print("testing gripper: open then close")
@@ -91,9 +97,9 @@ def main() -> None:
       # Nest so a gripper-disable failure can't skip the arm disable (leaving
       # the joint motors enabled), and disconnect always runs.
       try:
-        arm.disable_gripper()
+        agilex_init.disable_gripper(arm)
       finally:
-        arm.disable_arm()
+        agilex_init.disable_arm(arm)
     finally:
       arm.disconnect()
     print("done. exiting.")
