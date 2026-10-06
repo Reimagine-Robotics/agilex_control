@@ -68,9 +68,6 @@ _DEFAULT_FIRMWARE_PROFILE = "default"
 # https://github.com/agilexrobotics/pyAgxArm/blob/841a625/docs/effector/agx_gripper/agx_gripper_api.md
 _GRIPPER_FORCE_MAX = 3.0
 
-# timeout for enable
-_ENABLE_TIMEOUT = 8.0
-
 
 class ArmInterface:
   """A thin wrapper around pyAgxArm for a single AgileX arm.
@@ -137,7 +134,7 @@ class ArmInterface:
         raise TimeoutError(
             f"Timed out waiting for firmware on {self._can_port}."
         )
-      time.sleep(0.1)
+      time.sleep(0.5)
       firmware = self._arm.get_firmware()
     software_version = firmware["software_version"]
     self._firmware_version = software_version
@@ -179,83 +176,9 @@ class ArmInterface:
     if self._arm is not None:
       self._arm.disconnect()
 
-  def is_arm_enabled(self) -> bool:
-    """
-    Checks if the arms joints are enabled
-
-    Returns:
-      bool: True if all the joints are enabled, False otherwise
-    """
-    status_list = self._arm.get_joints_enable_status_list()
-    return all(joint_status is True for joint_status in status_list)
-
-  def is_gripper_enabled(self) -> bool:
-    """
-    Checks if the gripper is enabled
-    Returns:
-      bool: True if the gripper is enabled, False otherwise
-    """
-    deadline = time.time() + _ENABLE_TIMEOUT
-    status = self._gripper.get_gripper_status()
-    while status is None:
-      if time.time() >= deadline:
-        raise TimeoutError(
-            "Failed to read gripper status: gripper status is None"
-        )
-      time.sleep(0.01)
-      status = self._gripper.get_gripper_status()
-    return status.msg.foc_status.driver_enable_status
-
-  def is_enabled(self) -> bool:
-    """
-    Checks if the robot arm and gripper are enabled
-
-    Returns:
-      bool: True if the arm and gripper are enabled, False otherwise
-    """
-    return self.is_arm_enabled() and self.is_gripper_enabled()
-
-  def enable_arm(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
-    """Enables all joint motors, retrying for up to ``timeout`` seconds.
-
-    Returns:
-      bool: True if the joints report enabled. Raises error on timeout.
-    """
-    deadline = time.time() + timeout
-    while not self._arm.enable():
-      if time.time() >= deadline:
-        raise TimeoutError("Timed out while trying to enable the arm")
-      time.sleep(0.01)
-    return True
-
-  def enable_gripper(self, timeout: float = _ENABLE_TIMEOUT) -> bool:
-    """Enables the gripper, retrying for up to ``timeout`` seconds.
-
-    The gripper driver enables itself on receiving a command, so while it
-    reports disabled we resend a move to its current position (holding it in
-    place) until it reports enabled.
-
-    Returns:
-      bool: True if the gripper reports enabled, False if it did not before
-      the timeout.
-    """
-    deadline = time.time() + timeout
-    while True:
-      status = self._gripper.get_gripper_status()
-      if status is not None:
-        if status.msg.foc_status.driver_enable_status:
-          return True
-        if status.msg.mode == "width":
-          self._gripper.move_gripper_m(
-              value=status.msg.value, force=status.msg.force
-          )
-        if status.msg.mode == "angle":
-          self._gripper.move_gripper_deg(
-              value=status.msg.value, force=status.msg.force
-          )
-      if time.time() >= deadline:
-        raise TimeoutError("Timed out while trying to enable the gripper")
-      time.sleep(0.01)
+  def enable_arm(self) -> bool:
+    """Enables all joint motors, returning whether they report enabled."""
+    return self._arm.enable()
 
   def disable_arm(self) -> bool:
     """Disables all joint motors, returning whether they report disabled.
@@ -263,10 +186,6 @@ class ArmInterface:
     WARNING: this powers down the joints; an unsupported arm will drop.
     """
     return self._arm.disable()
-
-  def disable_gripper(self) -> bool:
-    """Disables the gripper. WARNING: it will go limp and may drop its load."""
-    return self._gripper.disable_gripper()
 
   def get_firmware_version(self) -> str | None:
     """Return the arm's firmware version, normalized (e.g. "1.8.post6").
@@ -312,21 +231,6 @@ class ArmInterface:
     if any(state is None for state in states):
       raise RuntimeError("No motor state feedback available.")
     return [state.msg.velocity for state in states]
-
-  def get_joint_torques(self) -> list[float]:
-    """
-    Returns the current measured joint torques as a sequence of floats (Nm).
-
-    Returns:
-      Sequence[float]: Joint torques in Nm.
-    """
-    states = [
-        self._arm.get_motor_states(i)
-        for i in range(1, self.get_num_joints() + 1)
-    ]
-    if any(state is None for state in states):
-      raise RuntimeError("No motor state feedback available.")
-    return [state.msg.torque for state in states]
 
   def get_joint_limits(self) -> dict[str, list[float]]:
     """
