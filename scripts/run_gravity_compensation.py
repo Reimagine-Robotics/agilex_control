@@ -26,6 +26,7 @@ import numpy as np
 
 from agilex_control import (
     agilex_control,
+    agilex_init,
     agilex_interface,
     can_utils,
     gravity_compensation,
@@ -117,7 +118,7 @@ def main() -> None:
     torque_c = np.array(joint_torque_c) if args.compensate_c else 1.0
 
     logger.info("enabling arm")
-    arm.enable_arm()
+    agilex_init.enable_arm(arm)
 
     shutdown = threading.Event()
 
@@ -155,7 +156,7 @@ def main() -> None:
   finally:
     logger.info("Cleaning up...")
     try:
-      arm.disable_arm()
+      agilex_init.disable_arm(arm)
     finally:
       arm.disconnect()
     logger.info("Done.")
