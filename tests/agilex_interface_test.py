@@ -18,8 +18,10 @@ from agilex_control import agilex_interface
 class _FakeDriver:
   """Records move_mit calls so tests can assert the interface's mapping."""
 
-  def __init__(self):
+  def __init__(self, joint_nums=6):
     self.calls = []
+    self.calibrate_calls = []
+    self.joint_nums = joint_nums
 
   def move_mit(
       self, joint_index, p_des=0.0, v_des=0.0, kp=10.0, kd=0.8, t_ff=0.0
@@ -35,6 +37,10 @@ class _FakeDriver:
             "t_ff": t_ff,
         }
     )
+
+  def calibrate_joint(self, joint_index):
+    """Record a calibrate_joint call."""
+    self.calibrate_calls.append(joint_index)
 
 
 def _interface_with_fake() -> agilex_interface.ArmInterface:
@@ -74,6 +80,21 @@ def test_command_joint_torque_mit_maps_to_move_mit():
           "t_ff": 2.5,
       }
   ]
+
+
+def test_set_joint_zero_positions_maps_to_one_based_calibrate():
+  arm = _interface_with_fake()
+  arm.set_joint_zero_positions([0, 5])
+  # Zero-based indices map to pyAgxArm's one-based calibrate_joint.
+  assert arm._arm.calibrate_calls == [1, 6]
+
+
+def test_set_joint_zero_positions_rejects_out_of_range():
+  arm = _interface_with_fake()  # 6-joint arm
+  with pytest.raises(ValueError):
+    arm.set_joint_zero_positions([0, 6])  # 6 is out of range [0, 5]
+  # Validation runs before any zeroing, so nothing was calibrated.
+  assert arm._arm.calibrate_calls == []
 
 
 class _FakeGripper:

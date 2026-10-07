@@ -465,6 +465,25 @@ class ArmInterface:
     }
     self._arm.set_installation_pos(installation_pos_map[installation_pos])
 
+  def set_joint_zero_positions(self, joints: Sequence[int]) -> None:
+    """Re-zeros the specified joints at their current positions.
+
+    Args:
+      joints (Sequence[int]): The indices of the joints to zero (zero-indexed).
+    """
+    num_joints = self.get_num_joints()
+    for joint in joints:
+      if not 0 <= joint < num_joints:
+        raise ValueError(
+            f"Joint index {joint} out of range [0, {num_joints - 1}]."
+        )
+    for joint in joints:
+      self._arm.calibrate_joint(joint_index=joint + 1)
+
+  def set_gripper_zero_position(self) -> None:
+    """Re-zeros the gripper at its current position."""
+    self._gripper.calibrate_gripper()
+
   def set_mit_mode(self) -> None:
     """Switches the arm to MIT mode for move_mit commands.
 
