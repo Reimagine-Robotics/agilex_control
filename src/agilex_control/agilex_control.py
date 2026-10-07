@@ -34,7 +34,7 @@ def mit_wire_torque_limit(firmware_version: str | None) -> float:
   exceeds it -- pyAgxArm would otherwise silently clamp them.
 
   Pass a normalized firmware string (as ArmInterface.get_firmware_version
-  returns, e.g. "1.8.post6"); an unknown or unparseable value defaults to the
+  returns, e.g. "1.8.post6"); an unknown or unparsable value defaults to the
   smaller 8 Nm span.
   """
   try:

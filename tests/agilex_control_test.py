@@ -186,6 +186,6 @@ def test_mit_wire_torque_limit_12bit_at_and_above_post8():
 
 
 def test_mit_wire_torque_limit_defaults_to_8_when_unknown():
-  # Unknown or unparseable firmware falls back to the smaller (safer) span.
+  # Unknown or unparsable firmware falls back to the smaller (safer) span.
   assert agilex_control.mit_wire_torque_limit(None) == 8.0
   assert agilex_control.mit_wire_torque_limit("not-a-version") == 8.0

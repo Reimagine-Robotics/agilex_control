@@ -253,3 +253,19 @@ def test_joint_torque_coefficients_offline_returns_kbc():
   # piperH wrist c: j4/j5 ~ 0.757, j6 ~ 1.287 (per-model, c=1 elsewhere).
   assert c[3] == pytest.approx(0.757, abs=1e-3)
   assert c[5] == pytest.approx(1.287, abs=1e-3)
+
+
+def test_compute_direct_scaling_factors_rejects_unknown_firmware_non_base():
+  # Unknown firmware on a non-base arm: driver can't be confirmed -> ValueError.
+  with pytest.raises(ValueError):
+    agilex_interface.compute_direct_scaling_factors(
+        agilex_interface.ArmType.PIPER_H, None
+    )
+
+
+def test_compute_direct_scaling_factors_base_piper_none_firmware():
+  # Base Piper is identity regardless of firmware, so None must not raise.
+  piper = agilex_interface.compute_direct_scaling_factors(
+      agilex_interface.ArmType.PIPER, None
+  )
+  assert piper == pytest.approx([1.0] * 6)

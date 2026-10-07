@@ -106,15 +106,23 @@ def compute_direct_scaling_factors(
     One scale factor per joint (all 1.0 for base Piper and for Nero).
 
   Raises:
+    ValueError: for a non-base arm when firmware_version is None -- the driver
+      cannot be confirmed, so the correction cannot be chosen safely.
     NotImplementedError: for a non-base arm on the legacy default driver
       (firmware <= 1.8.post2).
   """
   k, b, _ = joint_torque_coefficients(arm_type)
   if arm_type in (ArmType.PIPER, ArmType.NERO):
     return (1.0,) * len(k)  # We use k just to match the number of joints.
-  if firmware_version is not None and (
-      packaging_version.parse(firmware_version)
-      <= packaging_version.parse("1.8.post2")
+  if firmware_version is None:
+    # Unknown firmware: we can't confirm the modern driver, and legacy would
+    # need a different correction we don't implement. Fail rather than assume.
+    raise ValueError(
+        "firmware_version is required for non-base Piper arms, to confirm the"
+        " modern driver (> 1.8.post2); got None."
+    )
+  if packaging_version.parse(firmware_version) <= packaging_version.parse(
+      "1.8.post2"
   ):
     raise NotImplementedError(
         "direct_scaling_factors is implemented only for the modern driver"
@@ -377,6 +385,8 @@ class ArmInterface:
       One scale factor per joint (all 1.0 for base Piper and for Nero).
 
     Raises:
+      ValueError: for a non-base arm whose firmware is unknown (e.g. not
+        connected), so the driver cannot be confirmed.
       NotImplementedError: for a non-base arm on the legacy default driver
         (i.e non-base Pipers on firmware <= 1.8.post2).
     """
