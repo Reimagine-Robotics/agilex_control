@@ -15,8 +15,37 @@ import time
 from collections.abc import Sequence
 
 import numpy as np
+from packaging import version as packaging_version
 
 from agilex_control import agilex_interface
+
+# Firmware at/after which pyAgxArm's MIT feed-forward torque uses the 12-bit
+# field (+/-16 Nm); below it the field is 8-bit (+/-8 Nm).
+_MIT_12BIT_FRAME_VERSION = packaging_version.Version("1.8.post8")
+
+
+def mit_wire_torque_limit(firmware_version: str | None) -> float:
+  """Return the MIT torque wire limit in Nm for the given firmware.
+
+  This is the magnitude pyAgxArm's move_mit can represent before it clamps
+  t_ff: +/-8 Nm on firmware < S-V1.8-8 (8-bit field) and +/-16 Nm on S-V1.8-8+
+  (12-bit field, pyAgxArm's v188/v189 drivers). It caps the commandable
+  feed-forward torque, so callers (e.g. sysid) can reject poses whose effort
+  exceeds it -- pyAgxArm would otherwise silently clamp them.
+
+  Pass a normalized firmware string (as ArmInterface.get_firmware_version
+  returns, e.g. "1.8.post6"); an unknown or unparseable value defaults to the
+  smaller 8 Nm span.
+  """
+  try:
+    parsed = (
+        packaging_version.parse(firmware_version) if firmware_version else None
+    )
+  except packaging_version.InvalidVersion:
+    parsed = None
+  if parsed is not None and parsed >= _MIT_12BIT_FRAME_VERSION:
+    return 16.0
+  return 8.0
 
 
 def _arm_rest_positions(

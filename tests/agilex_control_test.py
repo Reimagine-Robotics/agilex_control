@@ -171,3 +171,21 @@ def test_move_to_position_retries_through_gap_then_converges():
   assert reached
   # It kept commanding the target through the gap and intermediate poses.
   assert len(arm.position_cmds) >= 12
+
+
+def test_mit_wire_torque_limit_8bit_below_post8():
+  # 8-bit field (+/-8 Nm) on firmware below S-V1.8-8.
+  assert agilex_control.mit_wire_torque_limit("1.8.post6") == 8.0
+  assert agilex_control.mit_wire_torque_limit("1.8.post7") == 8.0
+
+
+def test_mit_wire_torque_limit_12bit_at_and_above_post8():
+  # 12-bit field (+/-16 Nm) from S-V1.8-8 on; not rejected as in piper_control.
+  assert agilex_control.mit_wire_torque_limit("1.8.post8") == 16.0
+  assert agilex_control.mit_wire_torque_limit("1.8.post9") == 16.0
+
+
+def test_mit_wire_torque_limit_defaults_to_8_when_unknown():
+  # Unknown or unparseable firmware falls back to the smaller (safer) span.
+  assert agilex_control.mit_wire_torque_limit(None) == 8.0
+  assert agilex_control.mit_wire_torque_limit("not-a-version") == 8.0

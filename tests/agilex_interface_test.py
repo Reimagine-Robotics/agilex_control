@@ -210,3 +210,46 @@ def test_direct_scaling_factors_base_piper_identity_on_legacy_firmware():
   arm = _arm_with_config(agilex_interface.ArmType.PIPER)
   arm._firmware_version = "S-V1.8-2"
   assert arm.direct_scaling_factors() == pytest.approx([1.0] * 6)
+
+
+def test_compute_direct_scaling_factors_offline_matches_models():
+  # Offline helper (no live arm) reproduces the per-model ratios.
+  piper = agilex_interface.compute_direct_scaling_factors(
+      agilex_interface.ArmType.PIPER, "1.8.post6"
+  )
+  assert piper == pytest.approx([1.0] * 6)
+  piper_h = agilex_interface.compute_direct_scaling_factors(
+      agilex_interface.ArmType.PIPER_H, "1.8.post6"
+  )
+  assert piper_h == pytest.approx(
+      [1.0, 1.143, 1.0, 0.588, 0.588, 1.0], abs=1e-3
+  )
+  nero = agilex_interface.compute_direct_scaling_factors(
+      agilex_interface.ArmType.NERO, "1.8.post6"
+  )
+  assert nero == pytest.approx([1.0] * 7)
+
+
+def test_compute_direct_scaling_factors_base_piper_identity_on_legacy():
+  # Base Piper is identity on any firmware, so legacy must not raise.
+  piper = agilex_interface.compute_direct_scaling_factors(
+      agilex_interface.ArmType.PIPER, "1.8.post2"
+  )
+  assert piper == pytest.approx([1.0] * 6)
+
+
+def test_compute_direct_scaling_factors_rejects_legacy_non_base():
+  with pytest.raises(NotImplementedError):
+    agilex_interface.compute_direct_scaling_factors(
+        agilex_interface.ArmType.PIPER_H, "1.8.post2"
+    )
+
+
+def test_joint_torque_coefficients_offline_returns_kbc():
+  k, b, c = agilex_interface.joint_torque_coefficients(
+      agilex_interface.ArmType.PIPER_H
+  )
+  assert len(k) == len(b) == len(c) == 6
+  # piperH wrist c: j4/j5 ~ 0.757, j6 ~ 1.287 (per-model, c=1 elsewhere).
+  assert c[3] == pytest.approx(0.757, abs=1e-3)
+  assert c[5] == pytest.approx(1.287, abs=1e-3)
