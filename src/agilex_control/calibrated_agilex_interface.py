@@ -45,15 +45,19 @@ class CalibratedArmInterface(agilex_interface.ArmInterface):
     """Sets the per-joint offsets (raw reading at each joint's true 0 rad).
 
     Args:
-      offsets: One offset in radians per joint; length must match the arm.
+      offsets: One finite offset in radians per joint; length must match the
+        arm.
 
     Raises:
-      ValueError: If the number of offsets does not match the joint count.
+      ValueError: If the offsets are not exactly one finite value per joint.
     """
     num_joints = self.get_num_joints()
-    if len(offsets) != num_joints:
-      raise ValueError(f"Expected {num_joints} offsets, got {offsets!r}")
-    self._calibration_offsets = np.asarray(offsets, dtype=float)
+    # np.array copies by default, so later mutation of the caller's array
+    # cannot change the stored calibration.
+    values = np.array(offsets, dtype=float)
+    if values.shape != (num_joints,) or not np.all(np.isfinite(values)):
+      raise ValueError(f"Expected {num_joints} finite offsets, got {offsets!r}")
+    self._calibration_offsets = values
 
   def clear_calibration_offsets(self) -> None:
     """Drops the offsets, so the interface reports the raw joint frame again."""

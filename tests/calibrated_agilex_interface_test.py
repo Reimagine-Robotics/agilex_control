@@ -95,8 +95,31 @@ def test_raw_mit_command_bypasses_the_offsets():
   assert arm._arm.calls[0]["p_des"] == pytest.approx(0.5)
 
 
+def test_set_calibration_offsets_copies_input():
+  arm = _calibrated_with_fake()
+  offsets = np.array(_OFFSETS)
+  arm.set_calibration_offsets(offsets)
+  offsets[0] = 99.0  # mutating the caller's array must not shift calibration
+  assert arm.calibration_offsets == pytest.approx(_OFFSETS)
+
+
 def test_rejects_wrong_number_of_offsets():
   arm = _calibrated_with_fake()  # 6-joint arm
   with pytest.raises(ValueError):
     arm.set_calibration_offsets([0.1, 0.2, 0.3])
+  assert not arm.is_calibrated
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [float("nan")] * 6,
+        [float("inf")] * 6,
+        [[0.1]] * 6,  # (6, 1): right outer length, wrong shape
+    ],
+)
+def test_rejects_non_finite_or_misshaped_offsets(bad):
+  arm = _calibrated_with_fake()
+  with pytest.raises(ValueError):
+    arm.set_calibration_offsets(bad)
   assert not arm.is_calibrated
