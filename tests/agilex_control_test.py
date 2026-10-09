@@ -173,16 +173,30 @@ def test_move_to_position_retries_through_gap_then_converges():
   assert len(arm.position_cmds) >= 12
 
 
-def test_mit_wire_torque_limit_8bit_below_post8():
-  # 8-bit field (+/-8 Nm) on firmware below S-V1.8-8.
+def test_mit_wire_torque_limit_piper_8bit_below_post8():
+  # 8-bit field (+/-8 Nm) on Piper firmware below S-V1.8-8. Piper is the
+  # default arm_type, so these also cover the no-arm_type call form.
   assert agilex_control.mit_wire_torque_limit("1.8.post6") == 8.0
   assert agilex_control.mit_wire_torque_limit("1.8.post7") == 8.0
 
 
-def test_mit_wire_torque_limit_12bit_at_and_above_post8():
+def test_mit_wire_torque_limit_piper_12bit_at_and_above_post8():
   # 12-bit field (+/-16 Nm) from S-V1.8-8 on; not rejected as in piper_control.
   assert agilex_control.mit_wire_torque_limit("1.8.post8") == 16.0
   assert agilex_control.mit_wire_torque_limit("1.8.post9") == 16.0
+
+
+def test_mit_wire_torque_limit_nero_12bit_at_and_above_111():
+  # Nero's 12-bit boundary is 1.11 (NeroFW.V111), not the Piper 1.8.post8.
+  nero = agilex_interface.ArmType.NERO
+  assert agilex_control.mit_wire_torque_limit("1.11", nero) == 16.0
+  assert agilex_control.mit_wire_torque_limit("1.20", nero) == 16.0
+
+
+def test_mit_wire_torque_limit_nero_default_below_111_is_conservative():
+  # Below 1.11 the DEFAULT driver has per-joint limits; return the +/-8 floor.
+  nero = agilex_interface.ArmType.NERO
+  assert agilex_control.mit_wire_torque_limit("1.10", nero) == 8.0
 
 
 def test_mit_wire_torque_limit_defaults_to_8_when_unknown():
