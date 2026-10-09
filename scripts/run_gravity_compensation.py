@@ -35,13 +35,14 @@ from agilex_control import (
 logger = logging.getLogger(__name__)
 
 # Per-joint velocity damping, applied as software feed-forward torque
-# (-qvel * gain) so the arm stays freely backdrivable. Keyed by joint count
-# for Piper arms and Nero arms.
-_TEACH_DGAIN_BY_DOF = {
-    6: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),  # Piper.
-    7: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),  # Nero.
+# (-qvel * gain) so the arm stays freely backdrivable. Keyed by arm type.
+_TEACH_DGAIN_BY_ARM_TYPE = {
+    agilex_interface.ArmType.PIPER: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),
+    agilex_interface.ArmType.PIPER_H: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),
+    agilex_interface.ArmType.PIPER_X: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),
+    agilex_interface.ArmType.PIPER_L: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),
+    agilex_interface.ArmType.NERO: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),
 }
-_FALLBACK_DGAIN = 0.018
 
 
 def main() -> None:
@@ -81,6 +82,19 @@ def main() -> None:
           " leave off for an agilex_control-calibrated model."
       ),
   )
+  parser.add_argument(
+      "--compensate-c-damping",
+      action="store_true",
+      help=(
+          "Multiply the velocity-damping term by the per-joint c coefficient."
+          " The dgain values are inherited from piper_control, whose k*b effort"
+          " command was not c-divided; agilex_control's driver divides every"
+          " command by c, so an uncorrected dgain damps ~1/c harder (e.g. ~1.23x"
+          " at the base-Piper wrist, c=0.813). Enable this to cancel that and"
+          " reproduce piper_control's physical damping. Off by default; use it"
+          " to A/B against per-arm-type tuning of the raw dgain."
+      ),
+  )
   args = parser.parse_args()
 
   arm_type = agilex_interface.ArmType[args.arm_type]
@@ -116,6 +130,10 @@ def main() -> None:
     logger.info("command scale: %s", command_scale)
     _, _, joint_torque_c = arm.get_joint_torque_coefficients()
     torque_c = np.array(joint_torque_c) if args.compensate_c else 1.0
+    # Independent of torque_c: the dgain is piper_control-inherited (k*b effort),
+    # so c-correcting the damping reproduces its physical feel on the driver's
+    # c-divided command path. Keyed off the dgain's origin, not the model's.
+    damping_c = np.array(joint_torque_c) if args.compensate_c_damping else 1.0
 
     logger.info("enabling arm")
     agilex_init.enable_arm(arm)
@@ -129,8 +147,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
-    dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
+    dgain = np.array(_TEACH_DGAIN_BY_ARM_TYPE[arm_type])
 
     with agilex_control.MitJointPositionController(
         arm,
@@ -148,7 +165,7 @@ def main() -> None:
           time.sleep(0.005)
           continue
         hover_torque = model.predict(qpos) * command_scale * torque_c
-        stability_torque = -qvel * dgain
+        stability_torque = -qvel * dgain * damping_c
         command = hover_torque + stability_torque
         controller.command_torques(command.tolist())
         time.sleep(0.005)
