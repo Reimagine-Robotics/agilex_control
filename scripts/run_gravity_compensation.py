@@ -35,13 +35,35 @@ from agilex_control import (
 logger = logging.getLogger(__name__)
 
 # Per-joint velocity damping, applied as software feed-forward torque
-# (-qvel * gain) so the arm stays freely backdrivable. Keyed by joint count
-# for Piper arms and Nero arms.
-_TEACH_DGAIN_BY_DOF = {
-    6: (0.0, 0.002, 0.002, 0.018, 0.018, 0.018),  # Piper.
-    7: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),  # Nero.
+# (-qvel * gain) so the arm stays freely backdrivable. Keyed per arm type.
+_TEACH_DGAIN_BY_ARM_TYPE = {
+    agilex_interface.ArmType.PIPER: (0.0, 0.002, 0.002, 0.0146, 0.0146, 0.0146),
+    agilex_interface.ArmType.PIPER_H: (
+        0.0,
+        0.002,
+        0.002,
+        0.0136,
+        0.0136,
+        0.0232,
+    ),
+    agilex_interface.ArmType.PIPER_X: (
+        0.0,
+        0.002,
+        0.002,
+        0.0146,
+        0.0146,
+        0.0146,
+    ),
+    agilex_interface.ArmType.PIPER_L: (
+        0.0,
+        0.002,
+        0.002,
+        0.0146,
+        0.0146,
+        0.0146,
+    ),
+    agilex_interface.ArmType.NERO: (0.0, 0.05, 0.03, 0.05, 0.01, 0.02, 0.01),
 }
-_FALLBACK_DGAIN = 0.018
 
 
 def main() -> None:
@@ -129,8 +151,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    teach_dgain = _TEACH_DGAIN_BY_DOF.get(arm.get_num_joints())
-    dgain = np.array(teach_dgain) if teach_dgain else _FALLBACK_DGAIN
+    dgain = np.array(_TEACH_DGAIN_BY_ARM_TYPE[arm_type])
 
     with agilex_control.MitJointPositionController(
         arm,
