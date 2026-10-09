@@ -19,9 +19,9 @@ from packaging import version as packaging_version
 
 from agilex_control import agilex_interface
 
-# Firmware at/after which pyAgxArm's MIT feed-forward torque widens to the 12-bit
-# +/-16 Nm field (below it, the narrower 8-bit field). The boundary differs per
-# arm family -- see pyAgxArm's "move_mit parameters by version" docs:
+# Firmware at/after which pyAgxArm's MIT feed-forward torque widens to the
+# 12-bit +/-16 Nm field (below it, the narrower 8-bit field). The boundary
+# differs per arm family -- see pyAgxArm's "move_mit parameters by version":
 # https://github.com/agilexrobotics/pyAgxArm/blob/master/docs/piper/firmware_reference.md#mit-move_mit-parameters-by-version
 # https://github.com/agilexrobotics/pyAgxArm/blob/master/docs/nero/firmware_reference.md#mit-move_mit-parameters-by-version
 _PIPER_MIT_12BIT_VERSION = packaging_version.Version("1.8.post8")  # S-V1.8-8.
