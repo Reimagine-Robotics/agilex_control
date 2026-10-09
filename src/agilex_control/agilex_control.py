@@ -19,23 +19,37 @@ from packaging import version as packaging_version
 
 from agilex_control import agilex_interface
 
-# Firmware at/after which pyAgxArm's MIT feed-forward torque uses the 12-bit
-# field (+/-16 Nm); below it the field is 8-bit (+/-8 Nm).
-_MIT_12BIT_FRAME_VERSION = packaging_version.Version("1.8.post8")
+# Firmware at/after which pyAgxArm's MIT feed-forward torque widens to the 12-bit
+# +/-16 Nm field (below it, the narrower 8-bit field). The boundary differs per
+# arm family -- see pyAgxArm's "move_mit parameters by version" docs:
+# https://github.com/agilexrobotics/pyAgxArm/blob/master/docs/piper/firmware_reference.md#mit-move_mit-parameters-by-version
+# https://github.com/agilexrobotics/pyAgxArm/blob/master/docs/nero/firmware_reference.md#mit-move_mit-parameters-by-version
+_PIPER_MIT_12BIT_VERSION = packaging_version.Version("1.8.post8")  # S-V1.8-8.
+_NERO_MIT_12BIT_VERSION = packaging_version.Version("1.11")  # NeroFW.V111.
 
 
-def mit_wire_torque_limit(firmware_version: str | None) -> float:
-  """Return the MIT torque wire limit in Nm for the given firmware.
+def mit_wire_torque_limit(
+    firmware_version: str | None,
+    arm_type: agilex_interface.ArmType = agilex_interface.ArmType.PIPER,
+) -> float:
+  """Return the MIT torque wire limit in Nm for the given arm and firmware.
 
   This is the magnitude pyAgxArm's move_mit can represent before it clamps
-  t_ff: +/-8 Nm on firmware < S-V1.8-8 (8-bit field) and +/-16 Nm on S-V1.8-8+
-  (12-bit field, pyAgxArm's v188/v189 drivers). It caps the commandable
-  feed-forward torque, so callers (e.g. sysid) can reject poses whose effort
-  exceeds it -- pyAgxArm would otherwise silently clamp them.
+  t_ff. It caps the commandable feed-forward torque, so callers (e.g. sysid)
+  can reject poses whose effort exceeds it -- pyAgxArm would otherwise silently
+  clamp them. The wide 12-bit field (+/-16 Nm) is a flat limit on every joint;
+  the narrow field is +/-8 Nm. See _*_MIT_12BIT_VERSION for the per-family
+  boundary and the pyAgxArm docs linked there.
+
+  Nero's narrow field is actually PER-JOINT on older firmware (up to +/-24 Nm on
+  the base joints), which a single scalar cannot represent, so below its
+  boundary we return the conservative +/-8 floor -- it never overstates any
+  joint's limit.
 
   Pass a normalized firmware string (as ArmInterface.get_firmware_version
-  returns, e.g. "1.8.post6"); an unknown or unparsable value defaults to the
-  smaller 8 Nm span.
+  returns, e.g. "1.8.post6" for Piper or "1.11" for Nero); an unknown or
+  unparsable value defaults to the smaller 8 Nm span. arm_type selects the
+  boundary and defaults to Piper for backward compatibility.
   """
   try:
     parsed = (
@@ -43,7 +57,11 @@ def mit_wire_torque_limit(firmware_version: str | None) -> float:
     )
   except packaging_version.InvalidVersion:
     parsed = None
-  if parsed is not None and parsed >= _MIT_12BIT_FRAME_VERSION:
+  if arm_type == agilex_interface.ArmType.NERO:
+    threshold = _NERO_MIT_12BIT_VERSION
+  else:
+    threshold = _PIPER_MIT_12BIT_VERSION
+  if parsed is not None and parsed >= threshold:
     return 16.0
   return 8.0
 
