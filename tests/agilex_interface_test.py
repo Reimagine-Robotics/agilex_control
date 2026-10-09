@@ -21,7 +21,9 @@ class _FakeDriver:
   def __init__(self, joint_nums=6):
     self.calls = []
     self.calibrate_calls = []
+    self.crash_calls = []
     self.joint_nums = joint_nums
+    self._crash_levels = [0] * joint_nums
 
   def move_mit(
       self, joint_index, p_des=0.0, v_des=0.0, kp=10.0, kd=0.8, t_ff=0.0
@@ -41,6 +43,20 @@ class _FakeDriver:
   def calibrate_joint(self, joint_index):
     """Record a calibrate_joint call."""
     self.calibrate_calls.append(joint_index)
+
+  def set_crash_protection_rating(self, joint_index, rating, timeout=1.0):
+    """Record a set and update the stored level(s). 255 = all joints."""
+    del timeout
+    self.crash_calls.append((joint_index, rating))
+    if joint_index == 255:
+      self._crash_levels = [rating] * self.joint_nums
+    else:
+      self._crash_levels[joint_index - 1] = rating
+
+  def get_crash_protection_rating(self, timeout=1.0, min_interval=1.0):
+    """Return stored per-joint levels like pyAgxArm (msg is a list[int])."""
+    del timeout, min_interval
+    return types.SimpleNamespace(msg=list(self._crash_levels))
 
 
 def _interface_with_fake() -> agilex_interface.ArmInterface:
@@ -269,3 +285,53 @@ def test_compute_direct_scaling_factors_base_piper_none_firmware():
       agilex_interface.ArmType.PIPER, None
   )
   assert piper == pytest.approx([1.0] * 6)
+
+
+def test_set_collision_protection_differing_levels_maps_per_joint():
+  arm = _interface_with_fake()
+  arm.set_collision_protection([0, 1, 2, 3, 4, 5])
+  # Differing levels: one one-based set_crash_protection_rating call per joint.
+  assert arm._arm.crash_calls == [
+      (1, 0),
+      (2, 1),
+      (3, 2),
+      (4, 3),
+      (5, 4),
+      (6, 5),
+  ]
+
+
+def test_set_collision_protection_uniform_uses_all_joints_call():
+  arm = _interface_with_fake()
+  arm.set_collision_protection([3, 3, 3, 3, 3, 3])
+  # Uniform levels collapse to a single all-joints call (joint_index=255).
+  assert arm._arm.crash_calls == [(255, 3)]
+
+
+def test_set_collision_protection_rejects_wrong_count():
+  arm = _interface_with_fake()  # 6-joint arm
+  with pytest.raises(ValueError):
+    arm.set_collision_protection([1, 2, 3])
+  assert arm._arm.crash_calls == []
+
+
+def test_set_collision_protection_rejects_out_of_range():
+  arm = _interface_with_fake()
+  with pytest.raises(ValueError):
+    arm.set_collision_protection([0, 1, 2, 3, 4, 9])  # 9 > 8
+  # Validation runs before any set, so nothing was applied.
+  assert arm._arm.crash_calls == []
+
+
+def test_get_collision_protection_returns_per_joint_levels():
+  arm = _interface_with_fake()
+  arm.set_collision_protection([1, 2, 3, 4, 5, 6])
+  assert arm.get_collision_protection() == [1, 2, 3, 4, 5, 6]
+
+
+def test_set_collision_protection_rejects_non_integer():
+  arm = _interface_with_fake()
+  with pytest.raises(ValueError):
+    arm.set_collision_protection([0, 1, 2, 3, 4, 3.5])  # 3.5 is fractional
+  # Rejected before any write, so nothing reached the driver.
+  assert arm._arm.crash_calls == []
