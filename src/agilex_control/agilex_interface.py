@@ -541,7 +541,8 @@ class ArmInterface:
       levels: One level (0-8) per joint, length should match get_num_joints().
 
     Raises:
-      ValueError: if the count is wrong or any level is outside [0, 8].
+      ValueError: if the count is wrong or any level is not an integer in
+        [0, 8].
     """
     num_joints = self.get_num_joints()
     if len(levels) != num_joints:
@@ -549,11 +550,13 @@ class ArmInterface:
           f"Expected {num_joints} protection levels, got {len(levels)}."
       )
     # Validate all levels before setting any, so a bad one can't leave the arm
-    # with a partially-applied configuration.
+    # with a partially-applied configuration. isinstance is checked first so a
+    # non-numeric level can't raise TypeError in the range comparison.
     for i, level in enumerate(levels):
-      if not 0 <= level <= 8:
+      if not isinstance(level, int) or not 0 <= level <= 8:
         raise ValueError(
-            f"Joint {i} protection level must be in [0, 8], got {level}."
+            f"Joint {i} protection level must be an integer in [0, 8], got"
+            f" {level!r}."
         )
     if len(set(levels)) == 1:
       # Uniform: one all-joints call (joint_index=255).

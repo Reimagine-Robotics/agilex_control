@@ -327,3 +327,11 @@ def test_get_collision_protection_returns_per_joint_levels():
   arm = _interface_with_fake()
   arm.set_collision_protection([1, 2, 3, 4, 5, 6])
   assert arm.get_collision_protection() == [1, 2, 3, 4, 5, 6]
+
+
+def test_set_collision_protection_rejects_non_integer():
+  arm = _interface_with_fake()
+  with pytest.raises(ValueError):
+    arm.set_collision_protection([0, 1, 2, 3, 4, 3.5])  # 3.5 is fractional
+  # Rejected before any write, so nothing reached the driver.
+  assert arm._arm.crash_calls == []
