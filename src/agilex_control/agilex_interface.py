@@ -529,6 +529,53 @@ class ArmInterface:
     """Re-zeros the gripper at its current position."""
     self._gripper.calibrate_gripper()
 
+  def set_collision_protection(self, levels: Sequence[int]) -> None:
+    """Sets the collision protection levels for each joint.
+
+    Each level is 0-8: 0 disables collision detection; 1-8 are increasing
+    sensitivity thresholds. Maps to pyAgxArm's set_crash_protection_rating: one
+    all-joints call when every level is the same (its joint_index=255), else one
+    call per joint (pyAgxArm cannot set differing levels in a single call).
+
+    Args:
+      levels: One level (0-8) per joint, length should match get_num_joints().
+
+    Raises:
+      ValueError: if the count is wrong or any level is outside [0, 8].
+    """
+    num_joints = self.get_num_joints()
+    if len(levels) != num_joints:
+      raise ValueError(
+          f"Expected {num_joints} protection levels, got {len(levels)}."
+      )
+    # Validate all levels before setting any, so a bad one can't leave the arm
+    # with a partially-applied configuration.
+    for i, level in enumerate(levels):
+      if not 0 <= level <= 8:
+        raise ValueError(
+            f"Joint {i} protection level must be in [0, 8], got {level}."
+        )
+    if len(set(levels)) == 1:
+      # Uniform: one all-joints call (joint_index=255).
+      self._arm.set_crash_protection_rating(joint_index=255, rating=levels[0])
+    else:
+      for i, level in enumerate(levels):
+        self._arm.set_crash_protection_rating(joint_index=i + 1, rating=level)
+
+  def get_collision_protection(self) -> list[int]:
+    """Gets the current collision protection levels for each joint.
+
+    Returns:
+      list[int]: A list of integers representing the protection levels (0-8) for
+        each joint. Length will match get_num_joints().
+        - 0: No collision detection
+        - 1-8: Increasing detection thresholds
+    """
+    rating = self._arm.get_crash_protection_rating()
+    if rating is None:
+      raise RuntimeError("No collision protection feedback available.")
+    return list(rating.msg)
+
   def set_mit_mode(self) -> None:
     """Switches the arm to MIT mode for move_mit commands.
 
