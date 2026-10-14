@@ -64,10 +64,16 @@ class CalibratedArmInterface(agilex_interface.ArmInterface):
     self._calibration_offsets = None
 
   def get_joint_positions(self, raw: bool = False) -> list[float]:
-    positions = super().get_joint_positions()
+    return self.get_timestamped_joint_positions(raw=raw).positions
+
+  def get_timestamped_joint_positions(
+      self, raw: bool = False
+  ) -> agilex_interface.TimestampedJointPositions:
+    reading = super().get_timestamped_joint_positions()
     if raw or self._calibration_offsets is None:
-      return positions
-    return (np.asarray(positions) - self._calibration_offsets).tolist()
+      return reading
+    positions = np.asarray(reading.positions) - self._calibration_offsets
+    return reading._replace(positions=positions.tolist())
 
   def command_joint_position_mit(
       self,

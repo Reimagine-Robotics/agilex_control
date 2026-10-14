@@ -3,7 +3,7 @@
 import enum
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 import pyAgxArm
 from packaging import version as packaging_version
@@ -135,6 +135,18 @@ def compute_direct_scaling_factors(
       (base_k * base_b) / (arm_k * arm_b)
       for base_k, base_b, arm_k, arm_b in zip(k_base, b_base, k, b)
   )
+
+
+class TimestampedJointPositions(NamedTuple):
+  """Joint positions with the time the arm reported them.
+
+  ``timestamp`` is the CAN receive time of the joint-angle feedback in seconds
+  since the epoch. On socketcan this is the kernel receive time, on the same
+  clock as ``time.time()``.
+  """
+
+  positions: list[float]
+  timestamp: float
 
 
 class ArmInterface:
@@ -401,10 +413,14 @@ class ArmInterface:
     Returns:
       Sequence[float]: Joint positions in radians.
     """
+    return self.get_timestamped_joint_positions().positions
+
+  def get_timestamped_joint_positions(self) -> TimestampedJointPositions:
+    """Returns the current joint positions (radians) and their receive time."""
     msg = self._arm.get_joint_angles()
     if msg is None:
       raise RuntimeError("No joint angle feedback available.")
-    return list(msg.msg)
+    return TimestampedJointPositions(list(msg.msg), msg.timestamp)
 
   def get_joint_velocities(self) -> list[float]:
     """
