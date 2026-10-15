@@ -15,6 +15,30 @@ It is the successor to
 [`piper_control`](https://github.com/Reimagine-Robotics/piper_control), which
 wrapped the older `piper_sdk`.
 
+## CAN errors
+
+Install a handler before creating any arms to report CAN send and receive
+failures, including errors the SDK recovers from:
+
+```python
+import logging
+
+from agilex_control import can_error_logging
+
+logger = logging.getLogger(__name__)
+
+
+def log_can_error(channel: str, error: Exception) -> None:
+  logger.error("CAN I/O failed on %s: %r", channel, error)
+
+
+can_error_logging.install(log_can_error)
+```
+
+This applies to all new CAN connections in the process. The handler runs on
+the sending or receiving thread and must be quick and safe to call from either.
+The SDK still decides whether to recover or disconnect.
+
 ## Local development setup
 
 This project uses [`uv`](https://github.com/astral-sh/uv).
