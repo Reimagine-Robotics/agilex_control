@@ -110,7 +110,8 @@ differs (read the note). Dropped/planned APIs have their own sections.
   flow, values are cached.
 - **MIT feed-forward torque is in agilex units, not piper's.** Internally
   `move_mit` divides `t_ff` by the per-joint `c` and clamps it to the wire limit
-  (`±8·c`, or `±16·c` on firmware ≥ S-V1.8-8), logging a warning. That is why
+  (`±8·c`, or `±16·c` on firmware ≥ S-V1.8-8 for Piper / ≥ v1.11 for Nero),
+  logging a warning. That is why
   piper_control's `_clamp_wire_torque` / `mit_wire_torque_limit` clamp is dropped:
   the driver clamps for you (it warns rather than raises, and can't overflow the
   wire field). But **agilex torque ≠ piper effort** — don't copy a tuned torque
@@ -294,6 +295,25 @@ driver-vs-firmware split.
   `(position_m, force_N)`. `init_effector` is called **before** `connect()` (per
   pyAgxArm's effector docs) and is safe even with no gripper attached.
 
+## Calibration offsets
+
+`CalibratedArmInterface` (a subclass of `ArmInterface`) is the port of
+piper_control's calibrated interface / `j0_calibration_offset` — a software offset
+applied on read and command, now per joint rather than just j0. An arm's readings
+can shift at power-on or reset; joint zeroing measures an offset per joint so
+everything above the interface works in the true joint frame.
+
+- `set_calibration_offsets(offsets)` stores one offset per joint — the raw reading
+  at each joint's true 0 rad, so `calibrated = raw − offset`.
+- `get_joint_positions()` returns the calibrated frame; pass `raw=True` to bypass.
+  `command_joint_position_mit(...)` shifts the target back into the raw frame
+  before sending (also with a `raw=True` escape hatch).
+- `is_calibrated` and `calibration_offsets` expose the state;
+  `clear_calibration_offsets()` drops them.
+- The offsets live only in the object and are valid until the arm's next power-on
+  or reset, so clear them whenever the arm leaves the enabled state. Until offsets
+  are set, it behaves exactly like `ArmInterface` and reports raw angles.
+
 ## Deliberately dropped (do not port)
 
 - The MIT joint flip map and the runtime wire-torque **clamp**
@@ -309,8 +329,6 @@ driver-vs-firmware split.
 
 ## Not yet ported
 
-- `j0_calibration_offset` (software offset applied on read/command) — confirm r2
-  still uses it before porting.
 - `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status`
   exposure — not on the current production path. (The on-prem monitoring collector
   reads `foc_status` from piper_sdk directly today, so this isn't blocking.)
@@ -318,4 +336,7 @@ driver-vs-firmware split.
 Already landed (in the tables above, or as their own wrappers):
 `agilex_init` enable/disable/reset loops, joint zeroing
 (`set_joint_zero_positions`), gripper zeroing (`set_gripper_zero_position`),
-collision-protection get/set, `clear_joint_errors`, and `mit_wire_torque_limit`.
+collision-protection get/set, `clear_joint_errors`, `mit_wire_torque_limit`,
+calibration offsets (`CalibratedArmInterface`, see [Calibration
+offsets](#calibration-offsets)), and CAN-error reporting via a callback
+(`can_error_logging`).
