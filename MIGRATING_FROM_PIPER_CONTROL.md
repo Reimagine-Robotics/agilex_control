@@ -336,7 +336,10 @@ everything above the interface works in the true joint frame.
 Already landed (in the tables above, or as their own wrappers):
 `agilex_init` enable/disable/reset loops, joint zeroing
 (`set_joint_zero_positions`), gripper zeroing (`set_gripper_zero_position`),
-collision-protection get/set, `clear_joint_errors`, `mit_wire_torque_limit`,
+collision-protection get/set, `clear_joint_errors`, `mit_wire_torque_limit`, and
 calibration offsets (`CalibratedArmInterface`, see [Calibration
-offsets](#calibration-offsets)), and CAN-error reporting via a callback
-(`can_error_logging`).
+offsets](#calibration-offsets)).
+
+New in `agilex_control` (no `piper_control` equivalent, so nothing to port):
+CAN-error reporting via a callback (`can_error_logging.install(handler)`) —
+`piper_control` had no comm-error handling.
