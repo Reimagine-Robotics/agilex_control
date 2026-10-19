@@ -136,9 +136,18 @@ differs (read the note). Dropped/planned APIs have their own sections.
 
 ## Joint torque and the `c` coefficient
 
-Two separate things affect how a commanded torque reaches the joint: the
-**per-arm `k·b` torque-scaling coefficients** and the **`c` coefficient**. Both
-matter for gravity comp on non-base arms.
+> **Skip this section unless** you run gravity comp on a **non-base** arm (e.g.
+> `piper_h`) and it sags or floats, or you're reusing a model calibrated under
+> `piper_control`. Base-Piper gravity comp needs none of it.
+>
+> **If you do need it**, the fix is one line at the command site: scale the model
+> torque by `arm.direct_scaling_factors()` (identity on base Piper, the per-joint
+> ratio on `piper_h`). Reusing a `piper_control`-era model? Also pass
+> `--compensate-c`. Everything below is the *why*.
+
+Two things affect how a commanded torque reaches the joint: the per-arm `k·b`
+coefficients and the `c` coefficient. Both matter for gravity comp on non-base
+arms.
 
 ### `effort` (piper_control) vs `torque` (agilex)
 
@@ -225,14 +234,27 @@ driver-vs-firmware split.
 
 ## Gravity compensation
 
+The model is pure physics; the caller applies the command-path corrections. A
+deploy loop looks like:
+
+```python
+model = gravity_compensation.GravityCompensationModel(model_path, joint_names)
+command_scale = np.array(arm.direct_scaling_factors())  # 1.0 on base Piper
+while running:
+    try:
+        qpos = arm.get_joint_positions()
+    except RuntimeError:
+        continue                                        # no data this tick
+    tau = model.predict(qpos) * command_scale           # (+ stability/damping)
+    controller.command_torques(tau.tolist())
+```
+
 - `GravityCompensationModel(model_path, joint_names=...)` — `model_path` is
-  **required**; there is no bundled model or `get_default_model_path()`. The
-  model stays pure physics; command-path corrections are applied by the caller.
-- `predict()` returns the model's gravity torque. At the command site, scale it
-  by `ArmInterface.direct_scaling_factors()` (identity on base Piper; the per-joint
-  `k·b` ratio on `piper_h`, whose wrist floats without it). For a
-  piper_control-calibrated model, also multiply by `c` (from
-  `get_joint_torque_coefficients`). See [Joint torque and the `c`
+  **required**; there is no bundled model or `get_default_model_path()`.
+- `predict()` returns the model's gravity torque. Scale it by
+  `direct_scaling_factors()` (identity on base Piper; the per-joint `k·b` ratio on
+  `piper_h`, whose wrist floats without it). For a piper_control-calibrated model,
+  also multiply by `c` — see [Joint torque and the `c`
   coefficient](#joint-torque-and-the-c-coefficient).
 
 > **Reusing a piper_control-calibrated gravity model?** Those were fit against
@@ -244,9 +266,20 @@ driver-vs-firmware split.
 
 ## Controllers
 
+Same `MitJointPositionController` as before — just hand it an `ArmInterface`:
+
+```python
+with agilex_control.MitJointPositionController(
+    arm, kp_gains=5.0, kd_gains=0.8
+) as controller:
+    controller.move_to_position(target, threshold=0.01, timeout=5.0)
+    # also: controller.command_joints(target), controller.command_torques(tau)
+# leaving the context parks the arm at its rest pose and relaxes it
+```
+
 - `MitJointPositionController` moves to `agilex_control.agilex_control` (with
   `ArmOrientation` / `ArmOrientations`). Its constructor takes an `ArmInterface`
-  instead of a `PiperInterface`, and its API (`start`, `command_joints`,
+  instead of a `PiperInterface`; the API (`start`, `command_joints`,
   `command_torques`, `relax_joints`, `stop`, and the context-manager protocol) is
   unchanged.
 - It's the **only** joint controller — the `JointPositionController` ABC and
@@ -264,6 +297,16 @@ driver-vs-firmware split.
   `get_joint_positions()` can now raise (piper_sdk always returned zeros).
 
 ## Gripper
+
+Drive it through the controller, or command the arm directly:
+
+```python
+with agilex_control.GripperController(arm) as gripper:
+    gripper.command_open()
+    gripper.command_close()
+
+arm.command_gripper(position=0.04, force=1.0)  # metres, newtons (not N·m!)
+```
 
 - `GripperController` moves to `agilex_control.agilex_control`. Its API is
   unchanged — `command_open`, `command_close`, `command_position`, and the
