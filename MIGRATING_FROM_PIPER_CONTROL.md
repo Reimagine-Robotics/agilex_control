@@ -90,10 +90,6 @@ how. Dropped and not-yet-ported APIs have their own sections at the end.
 | `PiperGripperType` | `GripperType` | same | Values unchanged. |
 | `ArmInstallationPos` | `ArmInstallationPos` | changed | Kept, but values are now our own identifiers (`"upright"`/`"left"`/`"right"`); the old `piper_sdk` int codes are gone. The interface maps them to `pyAgxArm`'s constants at the call boundary. |
 
-The `Piper` prefix is dropped from the enum class names (the arm models are still
-`PIPER`, `PIPER_H`, ...). Enum string values are kept identical so existing
-config-string parsing is unaffected.
-
 **Methods**
 
 | `piper_control` | `agilex_control` | Behaviour | Notes |
@@ -101,7 +97,7 @@ config-string parsing is unaffected.
 | `get_piper_firmware_version()` | `get_firmware_version()` | same | Still normalized to the PEP440 form (`"1.8.post6"`). |
 | `get_joint_positions()` | `get_joint_positions()` | changed | **Raises** if no feedback yet — see [Reads can raise](#reads-can-raise-before-the-first-frame). |
 | `get_joint_velocities()` | `get_joint_velocities()` | changed | Raises if no feedback yet. |
-| `get_joint_efforts()` | `get_joint_torques()` | changed | Renamed (ROS "effort" → pyAgxArm "torque"); same N·m on base joints, wrist now carries `c`. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
+| `get_joint_efforts()` | `get_joint_torques()` | changed | Renamed `effort` → `torque`; same N·m on base joints, wrist now carries `c`. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `joint_torque_coefficients(arm_type)` → `(k, b)` | `get_joint_torque_coefficients()` → `(k, b, c)` | changed | Per-model coefficients; agilex also returns `c` (its feedback decodes `current·k·b·c`). |
 | `direct_scaling_factors(...)` (function) | `direct_scaling_factors()` (method) | same | **Ported** (modern branch). Per-joint `base(k·b)/arm(k·b)`, same `> 1.8.post2` boundary; the legacy `≤ 1.8.post2` branch raises `NotImplementedError`. The `c` correction is applied separately, not folded in here. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `set_installation_pos(pos)` | `set_installation_pos(pos)` | same | Maps to `pyAgxArm`'s `OPTIONS.INSTALLATION_POS.*`. |
