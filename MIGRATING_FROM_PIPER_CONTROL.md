@@ -23,10 +23,11 @@ Most code moving over needs only these four changes:
 2. **`get_joint_efforts` → `get_joint_torques`** — same N·m on the base joints,
    but the wrist value now carries `c` (see
    [the `c` coefficient](#joint-torque-and-the-c-coefficient)).
-3. **Set joint limits at init** — the arm's reported limits differ from
-   piper_control's hardcoded tables, so motions **silently clip** unless you call
-   `set_joint_limits(min, max)` right after connecting. The one that bites quietly
-   (no error) — see [Joint limits](#joint-limits).
+3. **Set joint limits at init** — the arm reports different limits than
+   piper_control's hardcoded tables. Nothing errors if you skip this; motions just
+   clip silently, which makes it the easiest step to miss. Call
+   `set_joint_limits(min, max)` right after connecting — see
+   [Joint limits](#joint-limits).
 4. **Catch `RuntimeError` on reads** — `get_joint_positions` /
    `get_joint_velocities` / `get_joint_torques` raise before the first CAN frame
    (piper_sdk returned zeros); skip the tick in your control loop. See
@@ -67,17 +68,17 @@ while running:
 The only deltas are the four points above: renamed imports, a robust
 `enable_arm`, setting joint limits at init, and catching `RuntimeError` on reads.
 
-The rest of the guide is a scannable **reference layer** (the API-mapping tables,
-for "what do I rename / call now?") followed by one short section per changed area.
-**Each section lists only what changed** from `piper_control`; anything not
-mentioned behaves the same.
+The rest of the guide opens with the API-mapping tables — a scannable **reference
+layer** for looking up what to rename or call now — then gives one short section
+per changed area. **Each section lists only what changed** from `piper_control`;
+anything not mentioned behaves the same.
 
 ## API mapping
 
-Each table maps an old name to its new one. The **Behaviour** column says whether
-it still works as before (**same**) or differently (**changed** — the section for
-that area below explains how). Dropped and not-yet-ported APIs have their own
-sections at the end.
+Each table maps an old name to its new one. The **Behaviour** column marks each
+entry **same** if it still works as before, or **changed** if it behaves
+differently; for anything marked **changed**, the matching section below explains
+how. Dropped and not-yet-ported APIs have their own sections at the end.
 
 **Modules, classes, and enums**
 
@@ -112,8 +113,8 @@ config-string parsing is unaffected.
 ## Reads can raise before the first frame
 
 **What changed:** `get_joint_positions`, `get_joint_velocities`, and
-`get_joint_torques` raise `RuntimeError` until the first CAN frame arrives, where
-`piper_sdk` returned `[0, 0, 0, 0, 0, 0]`.
+`get_joint_torques` raise `RuntimeError` until the first CAN frame arrives. In the
+same situation, `piper_sdk` returned `[0, 0, 0, 0, 0, 0]`.
 
 **What to do:** in a control loop, catch it and skip the tick (matches AgileX's
 own demos). It's mainly a startup window — once frames flow, the values are cached.
@@ -124,9 +125,9 @@ own demos). It's mainly a startup window — once frames flow, the values are ca
 the first read), not `piper_control`'s hardcoded per-model tables — most joints are
 tighter, a few report `±π`, and j6 is wider.
 
-**What to do:** inheriting them blindly silently clips most joints and over-extends
-j6, so if you rely on `piper_control`'s limits, call `set_joint_limits(min, max)`
-once right after connecting. `agilex_control` doesn't auto-apply them.
+**What to do:** if you just accept the arm's limits, most joints end up clipped and
+j6 over-extends. To keep `piper_control`'s limits, call `set_joint_limits(min,
+max)` once right after connecting — `agilex_control` doesn't auto-apply them.
 
 ## Joint torque and the `c` coefficient
 
@@ -140,15 +141,15 @@ once right after connecting. `agilex_control` doesn't auto-apply them.
 | `piper_control.get_joint_efforts` | `current · k · b` |
 | `agilex_control.get_joint_torques` | `current · k · b · c` |
 
-`c = 1` on the base joints; on the wrist, base-Piper `c ≈ 0.813` (j4–6), `piper_h`
-`0.757` (j4/j5) and `1.287` (j6). So anything recorded under `piper_control` that
-used wrist efforts — observations, datasets, gravity-comp calibrations — is in the
-old frame; re-check it.
+The base joints all have `c = 1`; only the wrist differs. On base Piper, `c ≈
+0.813` for j4–6; on `piper_h`, it's `0.757` for j4/j5 and `1.287` for j6. So
+anything recorded under `piper_control` that used wrist efforts — observations,
+datasets, gravity-comp calibrations — is in the old frame; re-check it.
 
-**Commands:** `move_mit` divides `t_ff` by `c` internally and clamps it to the wire
-limit, so piper_control's `_clamp_wire_torque` is dropped (the driver clamps for
-you) — but a `t_ff` tuned under piper_control no longer means the same torque, so
-don't copy tuned torque values across blind. Non-base arms additionally need a
+**Commands:** `move_mit` divides `t_ff` by `c` and clamps it to the wire limit for
+you, so piper_control's `_clamp_wire_torque` is no longer needed. But the same
+`t_ff` now maps to a different torque than it did under piper_control, so don't
+copy a tuned value across without re-checking it. Non-base arms additionally need a
 per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
 [Gravity compensation](#gravity-compensation). (Why that scale is `k·b` and not
 `k·b·c` lives in the `direct_scaling_factors` docstring.)
@@ -166,9 +167,9 @@ per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
   ```
 
   `direct_scaling_factors()` is 1.0 on base Piper and the per-joint ratio on
-  `piper_h` (whose wrist floats without it); non-base arms need firmware
-  > 1.8.post2, else it raises. Reusing a piper_control-era model (fit without
-  `c`)? Also pass `--compensate-c`.
+  `piper_h` (whose wrist floats without it); non-base arms need firmware newer than
+  1.8.post2, and on anything older `direct_scaling_factors()` raises. Reusing a
+  piper_control-era model (fit without `c`)? Also pass `--compensate-c`.
 
 ## Controllers
 
@@ -253,11 +254,12 @@ arm.command_gripper(position=0.04, force=1.0)  # metres, newtons (not N·m!)
 `CalibratedArmInterface` (a subclass of `ArmInterface`) is the port of
 piper_control's calibrated interface / `j0_calibration_offset` — a software offset
 applied on read and command, now per joint rather than just j0. An arm's readings
-can shift at power-on or reset; joint zeroing measures an offset per joint so
-everything above the interface works in the true joint frame.
+can shift at power-on or reset; joint zeroing measures an offset per joint, so any
+code built on the interface sees true joint angles rather than the shifted raw ones.
 
-- `set_calibration_offsets(offsets)` stores one offset per joint — the raw reading
-  at each joint's true 0 rad, so `calibrated = raw − offset`.
+- `set_calibration_offsets(offsets)` takes one offset per joint: the raw angle a
+  joint reports when it's actually at 0 rad. The interface subtracts that offset
+  from every reading, so `calibrated = raw − offset`.
 - `get_joint_positions()` returns the calibrated frame; pass `raw=True` to bypass.
   `command_joint_position_mit(...)` shifts the target back into the raw frame
   before sending (also with a `raw=True` escape hatch).
