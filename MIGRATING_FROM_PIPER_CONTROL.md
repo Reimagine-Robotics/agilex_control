@@ -19,7 +19,7 @@ Most code moving over needs only these four changes:
 
 1. **Rename imports / classes** — `PiperInterface` → `ArmInterface`,
    `piper_connect` → `can_utils`, and drop the `Piper` enum prefix
-   (`PiperArmType` → `ArmType`). See [Naming](#naming).
+   (`PiperArmType` → `ArmType`). See [API mapping](#api-mapping).
 2. **`get_joint_efforts` → `get_joint_torques`** — same N·m on the base joints,
    but the wrist value now carries `c` (see
    [the `c` coefficient](#joint-torque-and-the-c-coefficient)).
@@ -67,12 +67,18 @@ while running:
 The only deltas are the four points above: renamed imports, a robust
 `enable_arm`, setting joint limits at init, and catching `RuntimeError` on reads.
 
-The rest of the guide is a scannable **reference layer** (the Naming and Interface
-tables, for "what do I rename / call now?") followed by one short section per
-changed area. **Each section lists only what changed** from `piper_control`;
-anything not mentioned behaves the same.
+The rest of the guide is a scannable **reference layer** (the API-mapping tables,
+for "what do I rename / call now?") followed by one short section per changed area.
+**Each section lists only what changed** from `piper_control`; anything not
+mentioned behaves the same.
 
-## Naming
+## API mapping
+
+Old → new, with a status: *same* = direct port (same behaviour), *changed* =
+ported but behaviour differs (explained in the per-area section below). Dropped and
+not-yet-ported APIs have their own sections at the end.
+
+**Modules, classes, and enums**
 
 | `piper_control` | `agilex_control` | Status | Notes |
 |---|---|---|---|
@@ -86,10 +92,7 @@ The `Piper` prefix is dropped from the enum class names (the arm models are stil
 `PIPER`, `PIPER_H`, ...). Enum string values are kept identical so existing
 config-string parsing is unaffected.
 
-## Interface methods
-
-Status: *same* = direct port, same behaviour · *changed* = ported but behaviour
-differs (read the note). Dropped/planned APIs have their own sections.
+**Methods**
 
 | `piper_control` | `agilex_control` | Status | Notes |
 |---|---|---|---|
@@ -104,8 +107,6 @@ differs (read the note). Dropped/planned APIs have their own sections.
 | `set_arm_mode(MIT, MIT)` | `set_mit_mode()` | changed | **MIT-only** (single controller). Also disables `pyAgxArm`'s per-call motion-mode frames. |
 | `command_joint_position_mit(...)` | `command_joint_position_mit(...)` | same | Via `move_mit`; `torque_ff` is passed through (scale by `direct_scaling_factors` for non-base arms — see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient)). |
 | `command_joint_torque_mit(...)` | `command_joint_torque_mit(...)` | same | Via `move_mit`. |
-
-Rows marked *changed* are explained in the sections below.
 
 ## Reads can raise before the first frame
 
