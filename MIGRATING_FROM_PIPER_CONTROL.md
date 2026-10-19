@@ -74,14 +74,14 @@ mentioned behaves the same.
 
 ## API mapping
 
-Each table maps an old name to its new one. A status of **same** means a direct
-port that behaves as before; **changed** means it's ported but behaves
-differently, and the section for that area below explains how. Dropped and
-not-yet-ported APIs have their own sections at the end.
+Each table maps an old name to its new one. The **Behaviour** column says whether
+it still works as before (**same**) or differently (**changed** — the section for
+that area below explains how). Dropped and not-yet-ported APIs have their own
+sections at the end.
 
 **Modules, classes, and enums**
 
-| `piper_control` | `agilex_control` | Status | Notes |
+| `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
 | `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Still connects in `__init__`; auto-detects the firmware and selects the matching driver. |
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
@@ -95,7 +95,7 @@ config-string parsing is unaffected.
 
 **Methods**
 
-| `piper_control` | `agilex_control` | Status | Notes |
+| `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
 | `get_piper_firmware_version()` | `get_firmware_version()` | same | Still normalized to the PEP440 form (`"1.8.post6"`). |
 | `get_joint_positions()` | `get_joint_positions()` | changed | **Raises** if no feedback yet — see [Reads can raise](#reads-can-raise-before-the-first-frame). |
