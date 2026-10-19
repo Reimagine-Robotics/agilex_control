@@ -25,11 +25,12 @@ Most code moving over needs only these four changes:
    [the `c` coefficient](#joint-torque-and-the-c-coefficient)).
 3. **Set joint limits at init** — the arm's reported limits differ from
    piper_control's hardcoded tables, so motions **silently clip** unless you call
-   `set_joint_limits(min, max)` right after connecting. This is the one that bites
-   quietly (no error), so don't skip it.
+   `set_joint_limits(min, max)` right after connecting. The one that bites quietly
+   (no error) — see [Joint limits](#joint-limits).
 4. **Catch `RuntimeError` on reads** — `get_joint_positions` /
    `get_joint_velocities` / `get_joint_torques` raise before the first CAN frame
-   (piper_sdk returned zeros); skip the tick in your control loop.
+   (piper_sdk returned zeros); skip the tick in your control loop. See
+   [Reads can raise](#reads-can-raise-before-the-first-frame).
 
 Here is the same minimal control loop before and after:
 
@@ -66,15 +67,16 @@ while running:
 The only deltas are the four points above: renamed imports, a robust
 `enable_arm`, setting joint limits at init, and catching `RuntimeError` on reads.
 
-The rest of the guide goes area by area — naming, interface methods, behaviour,
-gravity comp, controllers, gripper. **Each section lists only what changed** from
-`piper_control`; anything not mentioned behaves the same.
+The rest of the guide is a scannable **reference layer** (the Naming and Interface
+tables, for "what do I rename / call now?") followed by one short section per
+changed area. **Each section lists only what changed** from `piper_control`;
+anything not mentioned behaves the same.
 
 ## Naming
 
 | `piper_control` | `agilex_control` | Status | Notes |
 |---|---|---|---|
-| `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Still connects in `__init__`. |
+| `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Still connects in `__init__`; auto-detects the firmware and selects the matching driver. |
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
 | `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
 | `PiperGripperType` | `GripperType` | same | Values unchanged. |
@@ -92,50 +94,44 @@ differs (read the note). Dropped/planned APIs have their own sections.
 | `piper_control` | `agilex_control` | Status | Notes |
 |---|---|---|---|
 | `get_piper_firmware_version()` | `get_firmware_version()` | same | Still normalized to the PEP440 form (`"1.8.post6"`). |
-| `get_joint_positions()` | `get_joint_positions()` | changed | **Raises** if no feedback yet (see below). |
+| `get_joint_positions()` | `get_joint_positions()` | changed | **Raises** if no feedback yet — see [Reads can raise](#reads-can-raise-before-the-first-frame). |
 | `get_joint_velocities()` | `get_joint_velocities()` | changed | Raises if no feedback yet. |
 | `get_joint_efforts()` | `get_joint_torques()` | changed | Renamed (ROS "effort" → pyAgxArm "torque"); same N·m on base joints, wrist now carries `c`. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `joint_torque_coefficients(arm_type)` → `(k, b)` | `get_joint_torque_coefficients()` → `(k, b, c)` | changed | Per-model coefficients; agilex also returns `c` (its feedback decodes `current·k·b·c`). |
 | `direct_scaling_factors(...)` (function) | `direct_scaling_factors()` (method) | same | **Ported** (modern branch). Per-joint `base(k·b)/arm(k·b)`, same `> 1.8.post2` boundary; the legacy `≤ 1.8.post2` branch raises `NotImplementedError`. The `c` correction is applied separately, not folded in here. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `set_installation_pos(pos)` | `set_installation_pos(pos)` | same | Maps to `pyAgxArm`'s `OPTIONS.INSTALLATION_POS.*`. |
-| `joint_limits` (property) | `get_joint_limits()` (method) | changed | Now **read from the arm** (cached), not hardcoded per model — a method, not a property (first call does a one-time read). New `set_joint_limits(min_angles, max_angles)` overrides them. |
+| `joint_limits` (property) | `get_joint_limits()` (method) | changed | Now **read from the arm** (cached), not hardcoded per model — a method, not a property. Override with `set_joint_limits(...)`; see [Joint limits](#joint-limits). |
 | `set_arm_mode(MIT, MIT)` | `set_mit_mode()` | changed | **MIT-only** (single controller). Also disables `pyAgxArm`'s per-call motion-mode frames. |
-| `command_joint_position_mit(...)` | `command_joint_position_mit(...)` | same | Via `move_mit`; `torque_ff` is passed through (apply `direct_scaling_factors` for non-base arms — see below). |
+| `command_joint_position_mit(...)` | `command_joint_position_mit(...)` | same | Via `move_mit`; `torque_ff` is passed through (scale by `direct_scaling_factors` for non-base arms — see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient)). |
 | `command_joint_torque_mit(...)` | `command_joint_torque_mit(...)` | same | Via `move_mit`. |
 
-## Behavioural differences to watch
+Rows marked *changed* are explained in the sections below.
 
-- **No-data reads raise instead of returning zeros.** `piper_sdk` returned
-  `[0, 0, 0, 0, 0, 0]` before the first CAN frame; `pyAgxArm` reports "no data"
-  explicitly, so `get_joint_positions`/`get_joint_velocities` raise `RuntimeError`
-  until the first frame arrives. In a control loop, catch it and skip the tick
-  (matches AgileX's own demos). This is mainly a startup window — once frames
-  flow, values are cached.
-- **MIT feed-forward torque is in agilex units, not piper's.** `move_mit` divides
-  `t_ff` by the per-joint `c`, clamps it to the wire limit (`±8·c`, or `±16·c` on
-  firmware ≥ S-V1.8-8 for Piper / ≥ v1.11 for Nero), and warns. So piper_control's
-  `_clamp_wire_torque` / `mit_wire_torque_limit` clamp is dropped — the driver
-  clamps for you. But **agilex torque ≠ piper effort**: don't copy a tuned value
-  across blind. See [the `c` coefficient](#joint-torque-and-the-c-coefficient).
-- **MIT gain ranges differ.** `move_mit` accepts `kd ∈ [-5, 5]` (vs
-  `piper_control`'s `[0, 10]`) and `kp ∈ [0, 500]`, and **clamps + warns** on
-  out-of-range values. The controller additionally validates gains up front and
-  **raises** `ValueError` (an early fail, so you don't unknowingly run clamped).
-- **The MIT joint flip map is gone.** `pyAgxArm`'s sign conventions match
-  `piper_control`'s across all joints/firmwares (no action needed).
-- **Firmware-matched driver on connect.** Connecting auto-detects the firmware
-  and selects the matching `pyAgxArm` driver (skipping the reconnect when the
-  default driver already matches, i.e. firmware `< S-V1.8-3`).
-- **Joint limits differ — set them at init.** `get_joint_limits()` reports what
-  the *arm* says, which isn't `piper_control`'s hardcoded tables (most joints
-  tighter, a few at `±π`, j6 wider). Inheriting them blindly clips most joints and
-  over-extends j6. For `piper_control`'s limits, **call `set_joint_limits(min,
-  max)` once right after connecting** — `agilex_control` doesn't auto-apply them.
+## Reads can raise before the first frame
+
+**What changed:** `get_joint_positions`, `get_joint_velocities`, and
+`get_joint_torques` raise `RuntimeError` until the first CAN frame arrives, where
+`piper_sdk` returned `[0, 0, 0, 0, 0, 0]`.
+
+**What to do:** in a control loop, catch it and skip the tick (matches AgileX's
+own demos). It's mainly a startup window — once frames flow, the values are cached.
+
+## Joint limits
+
+**What changed:** `get_joint_limits()` returns what the *arm* reports (cached on
+the first read), not `piper_control`'s hardcoded per-model tables — most joints are
+tighter, a few report `±π`, and j6 is wider.
+
+**What to do:** inheriting them blindly silently clips most joints and over-extends
+j6, so if you rely on `piper_control`'s limits, call `set_joint_limits(min, max)`
+once right after connecting. `agilex_control` doesn't auto-apply them.
 
 ## Joint torque and the `c` coefficient
 
-`get_joint_torques` returns `effort · c`, where `c` is a per-model wrist
-coefficient `piper_control` dropped:
+**What changed:** `agilex_control` keeps a per-model wrist coefficient `c` that
+`piper_control` dropped — on both the read and the command side.
+
+**Reads:** `get_joint_torques` returns `effort · c`:
 
 | | formula |
 |---|---|
@@ -147,11 +143,13 @@ coefficient `piper_control` dropped:
 used wrist efforts — observations, datasets, gravity-comp calibrations — is in the
 old frame; re-check it.
 
-On the **command** side, non-base arms also need a per-joint torque scale
-(`arm.direct_scaling_factors()`) for gravity comp — see
-[Gravity compensation](#gravity-compensation). The derivation of that scale (why
-it's `k·b` and not `k·b·c`) lives in the `direct_scaling_factors` docstring, not
-here.
+**Commands:** `move_mit` divides `t_ff` by `c` internally and clamps it to the wire
+limit, so piper_control's `_clamp_wire_torque` is dropped (the driver clamps for
+you) — but a `t_ff` tuned under piper_control no longer means the same torque, so
+don't copy tuned torque values across blind. Non-base arms additionally need a
+per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
+[Gravity compensation](#gravity-compensation). (Why that scale is `k·b` and not
+`k·b·c` lives in the `direct_scaling_factors` docstring.)
 
 ## Gravity compensation
 
@@ -190,8 +188,12 @@ with agilex_control.MitJointPositionController(
   unchanged.
 - It's the **only** joint controller — the `JointPositionController` ABC and
   `BuiltinJointPositionController` are gone. `start()` calls `set_mit_mode()`
-  (not `set_arm_mode(MIT, MIT)`), torque is fed raw, the flip map and wire-torque
-  clamp are dropped, and gain validation matches pyAgxArm's ranges (kd ∈ [-5, 5]).
+  (not `set_arm_mode(MIT, MIT)`), torque is fed raw, and the flip map and
+  wire-torque clamp are dropped.
+- **Gain ranges differ.** `move_mit` takes `kd ∈ [-5, 5]` (vs piper_control's
+  `[0, 10]`) and `kp ∈ [0, 500]`, clamping and warning out of range; the controller
+  also validates up front and **raises** `ValueError`, so you never unknowingly run
+  clamped.
 - It re-reads `get_joint_limits()` each command (interface-cached) for clipping,
   so a `set_joint_limits` after construction is reflected. Set the limits before
   commanding if you want values other than what the arm reports.
