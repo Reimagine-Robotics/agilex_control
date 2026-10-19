@@ -65,7 +65,10 @@ while running:
 
 The only deltas are the four points above: renamed imports, a robust
 `enable_arm`, setting joint limits at init, and catching `RuntimeError` on reads.
-Everything else is detail below.
+
+The rest of the guide goes area by area — naming, interface methods, behaviour,
+gravity comp, controllers, gripper. **Each section lists only what changed** from
+`piper_control`; anything not mentioned behaves the same.
 
 ## Naming
 
@@ -152,33 +155,20 @@ here.
 
 ## Gravity compensation
 
-The model is pure physics; the caller applies the command-path corrections. A
-deploy loop looks like:
+`GravityCompensationModel` and `predict()` are used as before — two things changed:
 
-```python
-model = gravity_compensation.GravityCompensationModel(model_path, joint_names)
-command_scale = np.array(arm.direct_scaling_factors())  # 1.0 on base Piper
-while running:
-    try:
-        qpos = arm.get_joint_positions()
-    except RuntimeError:
-        continue                                        # no data this tick
-    tau = model.predict(qpos) * command_scale           # (+ stability/damping)
-    controller.command_torques(tau.tolist())
-```
+- `model_path` is now **required** (no bundled model or `get_default_model_path()`).
+- `predict()` returns **raw** physics torque. piper_control baked the command
+  scale into the model; now you apply it yourself before commanding:
 
-- `GravityCompensationModel(model_path, joint_names=...)` — `model_path` is
-  **required** (no bundled model or `get_default_model_path()`); the model is pure
-  physics.
-- `predict()` returns the gravity torque; scale it by `direct_scaling_factors()`
-  before commanding (identity on base Piper; the per-joint `k·b` ratio on
-  `piper_h`, whose wrist floats without it). Non-base arms need firmware
-  > 1.8.post2 — it raises on legacy.
-- **Reusing a piper_control-era model** (fit against `k·b` effort, no `c`): also
-  pass **`--compensate-c`**, which multiplies the model torque by `c` to bring it
-  into agilex's `k·b·c` frame. A model freshly calibrated through agilex_control
-  needs no flag. Background on the `c` frame: [Joint torque and the `c`
-  coefficient](#joint-torque-and-the-c-coefficient).
+  ```python
+  tau = model.predict(qpos) * np.array(arm.direct_scaling_factors())
+  ```
+
+  `direct_scaling_factors()` is 1.0 on base Piper and the per-joint ratio on
+  `piper_h` (whose wrist floats without it); non-base arms need firmware
+  > 1.8.post2, else it raises. Reusing a piper_control-era model (fit without
+  `c`)? Also pass `--compensate-c`.
 
 ## Controllers
 
