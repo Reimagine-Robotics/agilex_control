@@ -74,8 +74,9 @@ mentioned behaves the same.
 
 ## API mapping
 
-Old → new, with a status: *same* = direct port (same behaviour), *changed* =
-ported but behaviour differs (explained in the per-area section below). Dropped and
+Each table maps an old name to its new one. A status of **same** means a direct
+port that behaves as before; **changed** means it's ported but behaves
+differently, and the section for that area below explains how. Dropped and
 not-yet-ported APIs have their own sections at the end.
 
 **Modules, classes, and enums**
