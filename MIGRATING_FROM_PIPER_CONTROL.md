@@ -131,64 +131,24 @@ differs (read the note). Dropped/planned APIs have their own sections.
 
 ## Joint torque and the `c` coefficient
 
-> **Skip this section unless** you run gravity comp on a **non-base** arm (e.g.
-> `piper_h`) and it sags or floats, or you're reusing a model calibrated under
-> `piper_control`. Base-Piper gravity comp needs none of it.
->
-> **If you do need it**, the fix is one line at the command site: scale the model
-> torque by `arm.direct_scaling_factors()` (identity on base Piper, the per-joint
-> ratio on `piper_h`). Reusing a `piper_control`-era model? Also pass
-> `--compensate-c`. Everything below is the *why*.
-
-Two things affect how a commanded torque reaches the joint: the per-arm `k·b`
-coefficients and the `c` coefficient. Both matter for gravity comp on non-base
-arms.
-
-### `effort` (piper_control) vs `torque` (agilex)
-
-`piper_control` exposes joint actuation as **`effort`** (`get_joint_efforts`);
-`agilex_control`/pyAgxArm expose it as **`torque`** (`get_joint_torques`). The
-rename is cosmetic, but the values differ on the wrist:
+`get_joint_torques` returns `effort · c`, where `c` is a per-model wrist
+coefficient `piper_control` dropped:
 
 | | formula |
 |---|---|
 | `piper_control.get_joint_efforts` | `current · k · b` |
 | `agilex_control.get_joint_torques` | `current · k · b · c` |
 
-So `get_joint_torques == effort · c`: identical on base joints (`c = 1`),
-different on the wrist — base Piper `c ≈ 0.813` on j4–j6; `piper_h` `c = 0.757`
-on j4/j5 and `1.287` on j6. `piper_control` drops `c`; pyAgxArm keeps it.
+`c = 1` on the base joints; on the wrist, base-Piper `c ≈ 0.813` (j4–6), `piper_h`
+`0.757` (j4/j5) and `1.287` (j6). So anything recorded under `piper_control` that
+used wrist efforts — observations, datasets, gravity-comp calibrations — is in the
+old frame; re-check it.
 
-### Why non-base arms need a command scale
-
-The firmware runs every MIT command at **base-Piper's `k·b`**, whatever arm is
-connected (piper_sdk Q&A §3.1: "the motor executes 4× the input", base Piper
-`b = 4`). So a non-base arm is off by the fixed per-joint ratio
-`base_piper(k·b) / arm(k·b)`:
-
-- Base Piper is the reference — ratio 1.0, deploys raw.
-- `piper_h`'s wrist (j4/j5, `b = 1.7`) gets ~1.7× too much torque and floats; its
-  j2 gets ~14% too little.
-
-`arm.direct_scaling_factors()` is that ratio — a **port** of piper_control's
-function of the same name (`> 1.8.post2` firmware only; raises on legacy). Base
-Piper and Nero are identity, so they skip it.
-
-**Why the ratio is `k·b`, not `k·b·c`:** the modern driver divides the command by
-`c` and the feedback decodes `c`, so the two `c`s cancel — that's why
-`direct_scaling_factors` carries no `c`. The driver doesn't divide by `b`; the
-firmware applies it, always at base-Piper's `b`. That matches a base Piper but not
-a non-base arm, leaving exactly the `k·b` gap. (Inferred from the Q&A plus
-hardware — AgileX doesn't document the split. Sources: pyAgxArm `v183/driver.py`
-vs `default/driver.py`, feedback `default/parser.py`, piper_sdk Q&A §3.)
-
-> **Legacy firmware (`≤ 1.8.post2`): not ported.** piper_control handled it (the
-> old firmware amplifies commands by the base gear ratio, so it divided the ratio
-> by `base_b`). We **raise `NotImplementedError`** instead: no non-base arm runs
-> legacy firmware in practice, and it wouldn't port cleanly anyway — pyAgxArm's
-> legacy driver already divides by the arm's `b` (`t_ff / b / c`), which
-> piper_control's piper_sdk target may not, and we have no legacy hardware to
-> test. Implement it only if a non-base arm ever ends up on legacy firmware.
+On the **command** side, non-base arms also need a per-joint torque scale
+(`arm.direct_scaling_factors()`) for gravity comp — see
+[Gravity compensation](#gravity-compensation). The derivation of that scale (why
+it's `k·b` and not `k·b·c`) lives in the `direct_scaling_factors` docstring, not
+here.
 
 ## Gravity compensation
 
@@ -212,11 +172,12 @@ while running:
   physics.
 - `predict()` returns the gravity torque; scale it by `direct_scaling_factors()`
   before commanding (identity on base Piper; the per-joint `k·b` ratio on
-  `piper_h`, whose wrist floats without it).
+  `piper_h`, whose wrist floats without it). Non-base arms need firmware
+  > 1.8.post2 — it raises on legacy.
 - **Reusing a piper_control-era model** (fit against `k·b` effort, no `c`): also
   pass **`--compensate-c`**, which multiplies the model torque by `c` to bring it
   into agilex's `k·b·c` frame. A model freshly calibrated through agilex_control
-  needs no flag. Why both scales exist: [Joint torque and the `c`
+  needs no flag. Background on the `c` frame: [Joint torque and the `c`
   coefficient](#joint-torque-and-the-c-coefficient).
 
 ## Controllers
