@@ -75,20 +75,30 @@ anything not mentioned behaves the same.
 
 ## API mapping
 
-Each table maps an old name to its new one. The **Behaviour** column marks each
-entry **same** if it still works as before, or **changed** if it behaves
-differently; for anything marked **changed**, the matching section below explains
-how. Dropped and not-yet-ported APIs have their own sections at the end.
+Each table maps an old name to its new one. The **Behaviour** column is **same**
+(works as before), **changed** (behaves differently — the matching section below
+explains how), **new** (no `piper_control` equivalent), or **removed**. Other
+dropped APIs and not-yet-ported ones are listed at the end.
 
-**Modules, classes, and enums**
+**Modules and enums**
 
 | `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
-| `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Still connects in `__init__`; auto-detects the firmware and selects the matching driver. |
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
 | `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
 | `PiperGripperType` | `GripperType` | same | Values unchanged. |
-| `ArmInstallationPos` | `ArmInstallationPos` | changed | Kept, but values are now our own identifiers (`"upright"`/`"left"`/`"right"`); the old `piper_sdk` int codes are gone. The interface maps them to `pyAgxArm`'s constants at the call boundary. |
+| `ArmInstallationPos` | `ArmInstallationPos` | changed | Values are now our own identifiers (`"upright"`/`"left"`/`"right"`), not the old `piper_sdk` int codes. |
+
+**Classes**
+
+| `piper_control` | `agilex_control` | Behaviour | Notes |
+|---|---|---|---|
+| `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Connects in `__init__`; auto-detects the firmware and driver. |
+| `MitJointPositionController` | `MitJointPositionController` | changed | Now the only controller; `start()` uses `set_mit_mode()`, torque is fed raw. See [Controllers](#controllers). |
+| `GravityCompensationModel` | `GravityCompensationModel` | changed | `model_path` is now required. See [Gravity compensation](#gravity-compensation). |
+| — | `CalibratedArmInterface` | new | Software calibration offsets. See [Calibration offsets](#calibration-offsets). |
+| `JointPositionController` | — | removed | MIT-only now. |
+| `BuiltinJointPositionController` | — | removed | MIT-only now. |
 
 **Methods**
 
@@ -180,15 +190,11 @@ with agilex_control.MitJointPositionController(
 # leaving the context parks the arm at its rest pose and relaxes it
 ```
 
-- `MitJointPositionController` moves to `agilex_control.agilex_control` (with
-  `ArmOrientation` / `ArmOrientations`). Its constructor takes an `ArmInterface`
-  instead of a `PiperInterface`; the API (`start`, `command_joints`,
-  `command_torques`, `relax_joints`, `stop`, and the context-manager protocol) is
-  unchanged.
-- It's the **only** joint controller — the `JointPositionController` ABC and
-  `BuiltinJointPositionController` are gone. `start()` calls `set_mit_mode()`
-  (not `set_arm_mode(MIT, MIT)`), torque is fed raw, and the flip map and
-  wire-torque clamp are dropped.
+- Its constructor takes an `ArmInterface` (not a `PiperInterface`); otherwise the
+  API — `start`, `command_joints`, `command_torques`, `relax_joints`, `stop`, and
+  the context-manager — is unchanged.
+- `start()` now calls `set_mit_mode()` instead of `set_arm_mode(MIT, MIT)`, and
+  torque is fed raw.
 - **Gain ranges differ.** `move_mit` takes `kd ∈ [-5, 5]` (vs piper_control's
   `[0, 10]`) and `kp ∈ [0, 500]`, clamping and warning out of range; the controller
   also validates up front and **raises** `ValueError`, so you never unknowingly run
@@ -215,10 +221,9 @@ with agilex_control.GripperController(arm) as gripper:
 arm.command_gripper(position=0.04, force=1.0)  # metres, newtons (not N·m!)
 ```
 
-- `GripperController` moves to `agilex_control.agilex_control`. Its API is
-  unchanged — `command_open`, `command_close`, `command_position`, and the
-  context-manager protocol (`start`/`stop` are no-ops, as before). Its
-  constructor takes an `ArmInterface`.
+- `GripperController`'s API is unchanged — `command_open`, `command_close`,
+  `command_position`, and the context-manager protocol (`start`/`stop` are no-ops,
+  as before). Its constructor takes an `ArmInterface`.
 - **`effort` → `force`, and N·m → N.** `piper_control` used `effort` in **N·m**
   (`command_gripper(position, effort)`, `DEFAULT_GRIPPER_EFFORT = 1.0`). AgileX
   uses **`force` in Newtons** (`command_gripper(position, force)`,
@@ -272,11 +277,11 @@ code built on the interface sees true joint angles rather than the shifted raw o
   itself. (`mit_wire_torque_limit` the *value* **is** ported, in `agilex_control`
   for sysid out-of-range rejection; and `direct_scaling_factors` **is** ported —
   see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient).)
-- `BuiltinJointPositionController` and position/cartesian moves (`move_j`,
-  `move_p`, ...) — unused in production.
+- Position and cartesian moves (`move_j`, `move_p`, `move_l`, ...) —
+  `agilex_control` is MIT-only.
 - `reset_gripper` — pyAgxArm's `move_gripper_m` enables the gripper in place, so
   the disable+enable reset cycle isn't needed.
-- `collision_checking.py` — unused.
+- `collision_checking.py` — not ported.
 
 ## Not yet ported
 
