@@ -218,5 +218,4 @@ angles instead of the shifted raw ones.
 - Position and cartesian moves (`move_j`, `move_p`, `move_l`, ...) —
   `agilex_control` is MIT-only.
 - `collision_checking.py`.
-- `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status` exposure
-  — not done yet.
+- `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status` exposure.
