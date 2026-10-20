@@ -2,17 +2,7 @@
 
 `agilex_control` wraps AgileX's `pyAgxArm` SDK; `piper_control` wrapped
 `piper_sdk`. This guide maps the API and calls out behavioural differences for
-code moving over. It is a living document — start with [Quick
-start](#quick-start) for the short path; [Deliberately
-dropped](#deliberately-dropped-do-not-port) covers APIs that didn't carry over,
-and [Not yet ported](#not-yet-ported) what's still pending.
-
-Import the submodules the same way as `piper_control`:
-
-```python
-from agilex_control import agilex_control, agilex_interface
-# agilex_interface.ArmInterface(...), agilex_control.MitJointPositionController(...)
-```
+code moving over.
 
 ## Quick start
 
