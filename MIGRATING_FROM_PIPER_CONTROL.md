@@ -171,15 +171,16 @@ torque is fed raw. Two behaviour changes matter when porting:
 
 ## Gripper
 
-`GripperController` is unchanged. The changes are in the arm's gripper commands:
+The gripper changed in several ways, whether you drive it through
+`GripperController` or command the arm directly:
 
 - **`effort` → `force`, and N·m → N.** piper_control's `effort` was in N·m; agilex's
   `force` is in Newtons. The default is still `1.0`, but the unit changed — a tuned
   N·m value now means that many Newtons. Rename `effort` → `force` and re-check the
   values.
 - **Max opening is read from the arm, not hardcoded.** `get_gripper_max_opening()`
-  reflects the actual gripper (0.07 m / 0.10 m) where piper_control hardcoded 0.07;
-  `command_open()` opens to it and `command_position` clips to `[0, max]`.
+  reflects the actual gripper (0.07 m / 0.10 m) where piper_control hardcoded 0.07,
+  so `command_open()` on a 10 cm gripper now opens further.
 - **Force clamp changed** from `[0, 2.0]` N·m to `[0, 3.0]` N — a constant, not
   queryable from the arm.
 - **No separate enable / reset.** `reset_gripper` / `enable_gripper` are gone; the
