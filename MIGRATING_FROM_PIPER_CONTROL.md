@@ -208,9 +208,7 @@ angles instead of the shifted raw ones.
   so clear them whenever the arm leaves the enabled state. Until they're set, it
   behaves exactly like `ArmInterface` and reports raw angles.
 
-## Deliberately dropped (do not port)
-
-These have no `agilex_control` equivalent.
+## Not ported
 
 - The MIT joint flip map and the runtime wire-torque **clamp**
   (`_clamp_wire_torque`) — `pyAgxArm`'s per-firmware driver clamps the wire frame
@@ -219,10 +217,6 @@ These have no `agilex_control` equivalent.
   [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient).)
 - Position and cartesian moves (`move_j`, `move_p`, `move_l`, ...) —
   `agilex_control` is MIT-only.
-- `collision_checking.py` — not ported.
-
-## Not yet ported
-
-- `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status`
-  exposure — not on the current production path. (The on-prem monitoring collector
-  reads `foc_status` from piper_sdk directly today, so this isn't blocking.)
+- `collision_checking.py`.
+- `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status` exposure
+  — not done yet.
