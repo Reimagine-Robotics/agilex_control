@@ -288,10 +288,3 @@ code built on the interface sees true joint angles rather than the shifted raw o
 - `set_payload`, `get_flange_pose`, and `get_driver_states` / `foc_status`
   exposure — not on the current production path. (The on-prem monitoring collector
   reads `foc_status` from piper_sdk directly today, so this isn't blocking.)
-
-Already landed (in the tables above, or as their own wrappers):
-`agilex_init` enable/disable/reset loops, joint zeroing
-(`set_joint_zero_positions`), gripper zeroing (`set_gripper_zero_position`),
-collision-protection get/set, `clear_joint_errors`, `mit_wire_torque_limit`, and
-calibration offsets (`CalibratedArmInterface`, see [Calibration
-offsets](#calibration-offsets)).
