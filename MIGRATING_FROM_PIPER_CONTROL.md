@@ -56,11 +56,8 @@ while running:
     ...
 ```
 
-Those four numbered points are the only required changes. The rest of the guide
-opens with the API-mapping tables — a scannable **reference layer** for looking up
-what to rename or call now — then gives one short section per changed area, each
-listing only what changed from `piper_control`; anything not mentioned behaves the
-same.
+That's it for most code. The rest of the guide details each changed area; anything
+it doesn't mention behaves the same as `piper_control`.
 
 ## API mapping
 
