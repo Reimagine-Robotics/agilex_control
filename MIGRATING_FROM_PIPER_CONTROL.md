@@ -171,9 +171,7 @@ torque is fed raw. Two behaviour changes matter when porting:
 
 ## Gripper
 
-`GripperController`'s API is unchanged (`command_open`, `command_close`,
-`command_position`, context-manager) and takes an `ArmInterface`. The changes are in
-the arm's gripper commands:
+`GripperController` is unchanged. The changes are in the arm's gripper commands:
 
 - **`effort` → `force`, and N·m → N.** piper_control's `effort` was in N·m; agilex's
   `force` is in Newtons. The default is still `1.0`, but the unit changed — a tuned
