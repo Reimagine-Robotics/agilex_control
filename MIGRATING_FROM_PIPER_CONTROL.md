@@ -219,8 +219,6 @@ These have no `agilex_control` equivalent.
   [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient).)
 - Position and cartesian moves (`move_j`, `move_p`, `move_l`, ...) —
   `agilex_control` is MIT-only.
-- `reset_gripper` — pyAgxArm's `move_gripper_m` enables the gripper in place, so
-  the disable+enable reset cycle isn't needed.
 - `collision_checking.py` — not ported.
 
 ## Not yet ported
