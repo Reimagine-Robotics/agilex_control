@@ -71,7 +71,7 @@ dropped APIs and not-yet-ported ones are listed at the end.
 | `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
-| `piper_init` | `agilex_init` | changed | Rename; `enable_arm` keeps its retry/timeout but drops the `arm_controller` / `move_mode` args (MIT-only). |
+| `piper_init` | `agilex_init` | same | `enable_arm` / `disable_arm` / `reset_arm` helpers. |
 | `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
 | `PiperGripperType` | `GripperType` | same | Values unchanged. |
 | `ArmInstallationPos` | `ArmInstallationPos` | changed | Values are now our own identifiers (`"upright"`/`"left"`/`"right"`), not the old `piper_sdk` int codes. |
@@ -92,6 +92,7 @@ dropped APIs and not-yet-ported ones are listed at the end.
 | `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
 | `get_piper_firmware_version()` | `get_firmware_version()` | same | Still normalized to the PEP440 form (`"1.8.post6"`). |
+| `enable_arm(arm, arm_controller, move_mode)` | `enable_arm(arm)` | changed | MIT-only, so the `arm_controller` / `move_mode` args are gone; the retry/timeout is unchanged. |
 | `get_joint_positions()` | `get_joint_positions()` | changed | **Raises** if no feedback yet — see [Reads can raise](#reads-can-raise-before-the-first-frame). |
 | `get_joint_velocities()` | `get_joint_velocities()` | changed | Raises if no feedback yet. |
 | `get_joint_efforts()` | `get_joint_torques()` | changed | Renamed `effort` → `torque`; same N·m on base joints, wrist now carries `c`. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
