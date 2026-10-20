@@ -297,5 +297,10 @@ calibration offsets (`CalibratedArmInterface`, see [Calibration
 offsets](#calibration-offsets)).
 
 New in `agilex_control` (no `piper_control` equivalent, so nothing to port):
-CAN-error reporting via a callback (`can_error_logging.install(handler)`) —
-`piper_control` had no comm-error handling.
+
+- CAN-error reporting via a callback (`can_error_logging.install(handler)`) —
+  `piper_control` had no comm-error handling.
+- `get_timestamped_joint_positions()` returns the joint positions together with
+  the CAN receive time of that feedback (`time.time()` clock), read from one
+  message so the two always match. `get_joint_positions()` still returns just the
+  positions.
