@@ -159,34 +159,15 @@ after connecting; otherwise you get whatever the arm reports.
 
 ## Controllers
 
-`MitJointPositionController` works much as before — construct it with an
-`ArmInterface`:
+`MitJointPositionController` is the only controller now. Its API is unchanged, but
+it's constructed with an `ArmInterface`, `start()` calls `set_mit_mode()`, and
+torque is fed raw. Two behaviour changes matter when porting:
 
-```python
-with agilex_control.MitJointPositionController(
-    arm, kp_gains=5.0, kd_gains=0.8
-) as controller:
-    controller.move_to_position(target, threshold=0.01, timeout=5.0)
-    # also: controller.command_joints(target), controller.command_torques(tau)
-# leaving the context parks the arm at its rest pose and relaxes it
-```
-
-- Its constructor takes an `ArmInterface` (not a `PiperInterface`); otherwise the
-  API — `start`, `move_to_position`, `command_joints`, `command_torques`,
-  `relax_joints`, `stop`, and the context-manager — is unchanged.
-- `start()` now calls `set_mit_mode()` instead of `set_arm_mode(MIT, MIT)`, and
-  torque is fed raw.
 - **Gain ranges differ.** `move_mit` takes `kd ∈ [-5, 5]` (piper_control: `[0, 10]`)
   and `kp ∈ [0, 500]`. The controller validates up front and **raises** `ValueError`
-  out of range, so you never unknowingly run clamped.
-- It re-reads `get_joint_limits()` each command for clipping, so a `set_joint_limits`
-  after construction takes effect. Set your limits before commanding if you don't
-  want the arm's defaults.
-- `relax_joints` (used by `stop()`) copes with feedback gaps: through a dropout it
-  reuses the last *measured* position, and if none was ever measured it relaxes with
-  `kp=0` (velocity damping only, so the arm goes limp instead of lunging toward a
-  guessed pose). With feedback flowing it behaves exactly as piper_control did — the
-  handling only exists because `get_joint_positions()` can now raise.
+  out of range, so ported gains fail fast instead of silently clamping.
+- It re-reads `get_joint_limits()` each command, so a `set_joint_limits` after
+  construction takes effect.
 
 ## Gripper
 
