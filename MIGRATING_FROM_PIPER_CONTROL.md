@@ -46,7 +46,7 @@ can_utils.activate()
 arm = agilex_interface.ArmInterface(
     can_port="can0", arm_type=agilex_interface.ArmType.PIPER
 )
-agilex_init.enable_arm(arm)                     # robust enable (retries + timeout)
+agilex_init.enable_arm(arm)                     # enable (same retry/timeout as before)
 arm.set_joint_limits(min_angles, max_angles)    # arm's limits differ — set yours
 while running:
     try:
@@ -71,7 +71,7 @@ dropped APIs and not-yet-ported ones are listed at the end.
 | `piper_control` | `agilex_control` | Behaviour | Notes |
 |---|---|---|---|
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
-| `piper_init` | `agilex_init` | changed | `enable_arm` / `disable_arm` / `reset_arm`; `enable_arm` now retries with a timeout. |
+| `piper_init` | `agilex_init` | changed | Rename; `enable_arm` keeps its retry/timeout but drops the `arm_controller` / `move_mode` args (MIT-only). |
 | `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
 | `PiperGripperType` | `GripperType` | same | Values unchanged. |
 | `ArmInstallationPos` | `ArmInstallationPos` | changed | Values are now our own identifiers (`"upright"`/`"left"`/`"right"`), not the old `piper_sdk` int codes. |
