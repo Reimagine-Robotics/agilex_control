@@ -154,8 +154,8 @@ after connecting; otherwise you get whatever the arm reports.
   `direct_scaling_factors()` is 1.0 on base Piper and the per-joint ratio on
   `piper_h` (whose wrist floats without it); non-base arms need firmware
   `> 1.8.post2` (older raises). For backwards compatibility with a
-  piper_control-era model (fit without `c`), pass `--compensate-c` to the
-  gravity-compensation script.
+  piper_control-era model (fit without `c`), pass `--compensate-c` to
+  `scripts/run_gravity_compensation.py`.
 
 ## Controllers
 
