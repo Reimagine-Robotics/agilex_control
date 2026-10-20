@@ -73,7 +73,7 @@ dropped APIs and not-yet-ported ones are listed at the end.
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
 | `piper_init` | `agilex_init` | same | `enable_arm` / `disable_arm` / `reset_arm` helpers. |
 | `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
-| `PiperGripperType` | `GripperType` | same | Values unchanged. |
+| `PiperGripperType` | `GripperType` | same | Member names and string values unchanged (`GripperType.V1 == "V1 7cm gripper"`). |
 | `ArmInstallationPos` | `ArmInstallationPos` | changed | Values are now our own identifiers (`"upright"`/`"left"`/`"right"`), not the old `piper_sdk` int codes. |
 
 **Classes**
