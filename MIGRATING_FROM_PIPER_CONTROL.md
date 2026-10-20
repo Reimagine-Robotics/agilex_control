@@ -171,37 +171,23 @@ torque is fed raw. Two behaviour changes matter when porting:
 
 ## Gripper
 
-Drive it through the controller, or command the arm directly:
+`GripperController`'s API is unchanged (`command_open`, `command_close`,
+`command_position`, context-manager) and takes an `ArmInterface`. The changes are in
+the arm's gripper commands:
 
-```python
-with agilex_control.GripperController(arm) as gripper:
-    gripper.command_open()
-    gripper.command_close()
-
-arm.command_gripper(position=0.04, force=1.0)  # metres, newtons (not N·m!)
-```
-
-- `GripperController`'s API is unchanged — `command_open`, `command_close`,
-  `command_position`, and the context-manager (`start`/`stop` are no-ops, as
-  before). Its constructor takes an `ArmInterface`.
 - **`effort` → `force`, and N·m → N.** piper_control's `effort` was in N·m; agilex's
   `force` is in Newtons. The default is still `1.0`, but the unit changed — a tuned
   N·m value now means that many Newtons. Rename `effort` → `force` and re-check the
   values.
 - **Max opening is read from the arm, not hardcoded.** `get_gripper_max_opening()`
-  reflects the actual gripper (0.07 m for the 7 cm, 0.10 m for the 10 cm), where
-  piper_control hardcoded 0.07. `command_open()` opens to this value;
-  `command_position` clips to `[0, max]`.
-- **Force is clamped to a different limit.** piper_control clamped effort to
-  `[0, 2.0]` N·m; agilex clamps force to `[0, 3.0]` N. Unlike the max opening, this
-  limit isn't queryable from the arm, so it's a constant.
-- **No separate enable / reset.** piper_control needed `reset_gripper` /
-  `enable_gripper` before commanding; agilex doesn't — the move command enables the
-  gripper implicitly. `command_gripper(position=None, force=None)` still means
-  "leave that field unchanged".
-- `disable_gripper()` is kept (WARNING: the gripper goes limp and may drop its
-  load). `get_gripper_status()` is now `get_gripper_state()`, returning
-  `(position_m, force_N)`.
+  reflects the actual gripper (0.07 m / 0.10 m) where piper_control hardcoded 0.07;
+  `command_open()` opens to it and `command_position` clips to `[0, max]`.
+- **Force clamp changed** from `[0, 2.0]` N·m to `[0, 3.0]` N — a constant, not
+  queryable from the arm.
+- **No separate enable / reset.** `reset_gripper` / `enable_gripper` are gone; the
+  move command enables the gripper implicitly.
+- `get_gripper_status()` is now `get_gripper_state()` → `(position_m, force_N)`.
+  `disable_gripper()` is kept (WARNING: the gripper goes limp and may drop its load).
 
 ## Calibration offsets
 
