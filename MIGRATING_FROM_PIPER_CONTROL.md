@@ -63,8 +63,8 @@ while running:
 |---|---|---|---|
 | `piper_connect` | `can_utils` | same | CAN discovery/activation. |
 | `piper_init` | `agilex_init` | same | `enable_arm` / `disable_arm` / `reset_arm` helpers. |
-| `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER == "Piper"`). |
-| `PiperGripperType` | `GripperType` | same | Member names and string values unchanged (`GripperType.V1 == "V1 7cm gripper"`). |
+| `PiperArmType` | `ArmType` | same | Member names and string values unchanged (`ArmType.PIPER.value == "Piper"`). |
+| `PiperGripperType` | `GripperType` | same | Member names and string values unchanged (`GripperType.V1.value == "V1 7cm gripper"`). |
 | `ArmInstallationPos` | `ArmInstallationPos` | changed | Values are now our own identifiers (`"upright"`/`"left"`/`"right"`), not the old `piper_sdk` int codes. |
 
 **Classes**
@@ -183,14 +183,17 @@ The gripper changed in several ways, whether you drive it through
   so `command_open()` on a 10 cm gripper now opens further.
 - **Force clamp changed** from `[0, 2.0]` N·m to `[0, 3.0]` N — a constant, not
   queryable from the arm.
-- **No separate enable / reset.** `reset_gripper` / `enable_gripper` are gone; the
-  move command enables the gripper implicitly.
+- **No pre-enable step needed.** piper_control enabled/reset the gripper before
+  commanding; agilex's move command enables it implicitly. The `ArmInterface` enable
+  / reset methods are gone, though `agilex_init.enable_gripper(arm)` still exists to
+  block until it's enabled.
 - `get_gripper_status()` is now `get_gripper_state()` → `(position_m, force_N)`.
   `disable_gripper()` is kept (WARNING: the gripper goes limp and may drop its load).
 
 ## Calibration offsets
 
-`CalibratedArmInterface` (a subclass of `ArmInterface`) ports piper_control's
+`CalibratedArmInterface` (a subclass of `ArmInterface`, imported with
+`from agilex_control import calibrated_agilex_interface`) ports piper_control's
 calibrated interface / `j0_calibration_offset` — a software offset applied on read
 and command, now per joint rather than just j0. Readings can shift at power-on or
 reset; measuring an offset per joint lets code on the interface see true joint
