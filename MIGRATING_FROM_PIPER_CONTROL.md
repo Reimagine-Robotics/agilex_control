@@ -91,8 +91,8 @@ while running:
 | `direct_scaling_factors(...)` (function) | `direct_scaling_factors()` (method) | changed | Now a method on the arm (was a module function). Per-joint `base(k·b)/arm(k·b)`, computed for firmware `> 1.8.post2`; the legacy `≤ 1.8.post2` path raises `NotImplementedError`. `c` is applied separately. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `joint_limits` (property) | `get_joint_limits()` (method) | changed | Now **read from the arm** (cached), not hardcoded per model — a method, not a property. Override with `set_joint_limits(...)`; see [Joint limits](#joint-limits). |
 | `set_arm_mode(MIT, MIT)` | `set_mit_mode()` | changed | **MIT-only** (single controller). Also disables `pyAgxArm`'s per-call motion-mode frames. |
-| `command_joint_position_mit(...)` | `command_joint_position_mit(...)` | same | Via `move_mit`; `torque_ff` is passed through (scale by `direct_scaling_factors` for non-base arms — see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient)). |
-| `command_joint_torque_mit(...)` | `command_joint_torque_mit(...)` | same | Via `move_mit`. |
+| `command_joint_position_mit(...)` | `command_joint_position_mit(...)` | same | `torque_ff` is passed through; scale by `direct_scaling_factors` for non-base arms — see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
+| `command_joint_torque_mit(...)` | `command_joint_torque_mit(...)` | same | Torque goes through the same `c` / scaling treatment — see [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `command_gripper(position, effort)` | `command_gripper(position, force)` | changed | `effort` (N·m) → `force` (N) — re-check tuned values. See [Gripper](#gripper). |
 | `get_gripper_status()` | `get_gripper_state()` | changed | Returns `(position_m, force_N)`. See [Gripper](#gripper). |
 
