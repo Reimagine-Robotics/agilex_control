@@ -14,10 +14,10 @@ Most code moving over needs only these four changes:
 2. **`get_joint_efforts` → `get_joint_torques`** — same N·m on the base joints,
    but the wrist value now carries `c` (see
    [the `c` coefficient](#joint-torque-and-the-c-coefficient)).
-3. **Set joint limits at init** — the arm reports different limits than
-   piper_control's hardcoded tables. Nothing errors if you skip this; motions just
-   clip silently, which makes it the easiest step to miss. Call
-   `set_joint_limits(min, max)` right after connecting — see
+3. **Joint limits may have changed** — `get_joint_limits()` now returns what the
+   arm reports, not piper_control's hardcoded tables, so they may differ from the
+   ones your code assumed. Nothing errors if you skip this; if you rely on specific
+   limits, call `set_joint_limits(min, max)` right after connecting — see
    [Joint limits](#joint-limits).
 4. **Catch `RuntimeError` on reads** — `get_joint_positions` /
    `get_joint_velocities` / `get_joint_torques` raise before the first CAN frame
