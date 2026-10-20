@@ -210,9 +210,7 @@ angles instead of the shifted raw ones.
 
 ## Deliberately dropped (do not port)
 
-These have no `agilex_control` equivalent. (The `removed` controllers in the tables
-above — `JointPositionController` / `BuiltinJointPositionController` — are part of
-the same MIT-only consolidation.)
+These have no `agilex_control` equivalent.
 
 - The MIT joint flip map and the runtime wire-torque **clamp**
   (`_clamp_wire_torque`) — `pyAgxArm`'s per-firmware driver clamps the wire frame
