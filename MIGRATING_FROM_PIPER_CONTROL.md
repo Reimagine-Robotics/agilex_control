@@ -15,16 +15,15 @@ Most code moving over needs only these four changes:
    but the wrist value now carries `c` (see
    [the `c` coefficient](#joint-torque-and-the-c-coefficient)).
 3. **Joint limits may have changed** — `get_joint_limits()` now returns what the
-   arm reports, not piper_control's hardcoded tables, so they may differ from the
-   ones your code assumed. Nothing errors if you skip this; if you rely on specific
-   limits, call `set_joint_limits(min, max)` right after connecting — see
-   [Joint limits](#joint-limits).
+   arm reports, not piper_control's hardcoded tables. Nothing errors if you skip
+   this; if you rely on specific limits, call `set_joint_limits(min, max)` after
+   connecting — see [Joint limits](#joint-limits).
 4. **Catch `RuntimeError` on reads** — `get_joint_positions` /
    `get_joint_velocities` / `get_joint_torques` raise before the first CAN frame
    (piper_sdk returned zeros); skip the tick in your control loop. See
    [Reads can raise](#reads-can-raise-before-the-first-frame).
 
-Here is the same minimal control loop before and after:
+The same minimal control loop, before and after:
 
 ```python
 # Before — piper_control
@@ -56,15 +55,7 @@ while running:
     ...
 ```
 
-That's it for most code. The rest of the guide details each changed area; anything
-it doesn't mention behaves the same as `piper_control`.
-
 ## API mapping
-
-Each table maps an old name to its new one. The **Behaviour** column is **same**
-(works as before), **changed** (behaves differently — the matching section below
-explains how), **new** (no `piper_control` equivalent), or **removed**. Other
-dropped APIs and not-yet-ported ones are listed at the end.
 
 **Modules and enums**
 
@@ -97,7 +88,7 @@ dropped APIs and not-yet-ported ones are listed at the end.
 | `get_joint_velocities()` | `get_joint_velocities()` | changed | Raises if no feedback yet. |
 | `get_joint_efforts()` | `get_joint_torques()` | changed | Renamed `effort` → `torque`; same N·m on base joints, wrist now carries `c`. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `joint_torque_coefficients(arm_type)` → `(k, b)` | `get_joint_torque_coefficients()` → `(k, b, c)` | changed | Per-model coefficients; agilex also returns `c` (its feedback decodes `current·k·b·c`). See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
-| `direct_scaling_factors(...)` (function) | `direct_scaling_factors()` (method) | changed | Now a method on the arm (was a module function). Per-joint `base(k·b)/arm(k·b)`, computed for firmware `> 1.8.post2`; the legacy `≤ 1.8.post2` path raises `NotImplementedError`. `c` is applied separately, not folded in. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
+| `direct_scaling_factors(...)` (function) | `direct_scaling_factors()` (method) | changed | Now a method on the arm (was a module function). Per-joint `base(k·b)/arm(k·b)`, computed for firmware `> 1.8.post2`; the legacy `≤ 1.8.post2` path raises `NotImplementedError`. `c` is applied separately. See [Joint torque and the `c` coefficient](#joint-torque-and-the-c-coefficient). |
 | `set_installation_pos(pos)` | `set_installation_pos(pos)` | same | Maps to `pyAgxArm`'s `OPTIONS.INSTALLATION_POS.*`. |
 | `joint_limits` (property) | `get_joint_limits()` (method) | changed | Now **read from the arm** (cached), not hardcoded per model — a method, not a property. Override with `set_joint_limits(...)`; see [Joint limits](#joint-limits). |
 | `set_arm_mode(MIT, MIT)` | `set_mit_mode()` | changed | **MIT-only** (single controller). Also disables `pyAgxArm`'s per-call motion-mode frames. |
@@ -127,19 +118,17 @@ own demos). It's mainly a startup window — once frames flow, the values are ca
 | `piper_control.get_joint_efforts` | `current · k · b` |
 | `agilex_control.get_joint_torques` | `current · k · b · c` |
 
-The first three joints all have `c = 1`; only the wrist differs. On the base
-Piper, `c ≈ 0.813` for j4–6; on `piper_h`, it's `0.757` for j4/j5 and `1.287` for
-j6. So anything recorded under `piper_control` that used wrist efforts —
-observations, datasets, gravity-comp calibrations — is in the old frame; re-check
-it.
+The first three joints have `c = 1`; only the wrist differs. On the base Piper,
+`c ≈ 0.813` for j4–6; on `piper_h`, it's `0.757` for j4/j5 and `1.287` for j6. So
+anything recorded under `piper_control` from wrist efforts — observations, datasets,
+gravity-comp calibrations — is in the old frame; re-check it.
 
 **Commands:** `move_mit` divides `t_ff` by `c` and clamps it to the wire limit for
-you, so piper_control's `_clamp_wire_torque` is no longer needed. But the same
-`t_ff` now maps to a different torque than it did under piper_control, so don't
-copy a tuned value across without re-checking it. Non-base arms additionally need a
-per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
-[Gravity compensation](#gravity-compensation). (Why that scale is `k·b` and not
-`k·b·c` lives in the `direct_scaling_factors` docstring.)
+you, so `_clamp_wire_torque` is gone. But the same `t_ff` now maps to a different
+torque, so re-check tuned values before copying them across. Non-base arms also need
+a per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
+[Gravity compensation](#gravity-compensation). (Why that scale is `k·b`, not
+`k·b·c`, is in the `direct_scaling_factors` docstring.)
 
 ## Joint limits
 
@@ -147,10 +136,9 @@ per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
 the first read), not `piper_control`'s hardcoded per-model tables — so the values
 can differ from the ones your code assumed.
 
-**What to do:** `agilex_control` doesn't auto-apply piper_control's limits. If you
-want specific limits — for example to keep piper_control's — call
-`set_joint_limits(min, max)` once right after connecting; otherwise you get
-whatever the arm reports.
+**What to do:** `agilex_control` doesn't auto-apply piper_control's limits. To keep
+specific limits (e.g. piper_control's), call `set_joint_limits(min, max)` right
+after connecting; otherwise you get whatever the arm reports.
 
 ## Gravity compensation
 
@@ -165,10 +153,9 @@ whatever the arm reports.
   ```
 
   `direct_scaling_factors()` is 1.0 on base Piper and the per-joint ratio on
-  `piper_h` (whose wrist floats without it); non-base arms need firmware newer than
-  1.8.post2, and on anything older `direct_scaling_factors()` raises. Reusing a
-  piper_control-era model (fit without `c`)? Pass `--compensate-c` to the
-  gravity-compensation script.
+  `piper_h` (whose wrist floats without it); non-base arms need firmware
+  `> 1.8.post2` (older raises). Reusing a piper_control-era model (fit without
+  `c`)? Pass `--compensate-c` to the gravity-compensation script.
 
 ## Controllers
 
@@ -189,19 +176,17 @@ with agilex_control.MitJointPositionController(
   `relax_joints`, `stop`, and the context-manager — is unchanged.
 - `start()` now calls `set_mit_mode()` instead of `set_arm_mode(MIT, MIT)`, and
   torque is fed raw.
-- **Gain ranges differ.** `move_mit` takes `kd ∈ [-5, 5]` (vs piper_control's
-  `[0, 10]`) and `kp ∈ [0, 500]`, clamping and warning out of range; the controller
-  also validates up front and **raises** `ValueError`, so you never unknowingly run
-  clamped.
-- It re-reads `get_joint_limits()` each command (interface-cached) for clipping,
-  so a `set_joint_limits` after construction is reflected. Set the limits before
-  commanding if you want values other than what the arm reports.
-- `relax_joints` (used by `stop()`) copes with the new feedback gaps. Through a
-  dropout it reuses the last *measured* position; if a position was never measured,
-  it relaxes with `kp=0` (velocity damping only, so the arm goes limp without
-  lunging toward a guessed pose) before disabling. This is **additive**: with
-  feedback flowing it behaves exactly as piper_control did. It only exists because
-  `get_joint_positions()` can now raise (piper_sdk always returned zeros).
+- **Gain ranges differ.** `move_mit` takes `kd ∈ [-5, 5]` (piper_control: `[0, 10]`)
+  and `kp ∈ [0, 500]`. The controller validates up front and **raises** `ValueError`
+  out of range, so you never unknowingly run clamped.
+- It re-reads `get_joint_limits()` each command for clipping, so a `set_joint_limits`
+  after construction takes effect. Set your limits before commanding if you don't
+  want the arm's defaults.
+- `relax_joints` (used by `stop()`) copes with feedback gaps: through a dropout it
+  reuses the last *measured* position, and if none was ever measured it relaxes with
+  `kp=0` (velocity damping only, so the arm goes limp instead of lunging toward a
+  guessed pose). With feedback flowing it behaves exactly as piper_control did — the
+  handling only exists because `get_joint_positions()` can now raise.
 
 ## Gripper
 
@@ -216,53 +201,46 @@ arm.command_gripper(position=0.04, force=1.0)  # metres, newtons (not N·m!)
 ```
 
 - `GripperController`'s API is unchanged — `command_open`, `command_close`,
-  `command_position`, and the context-manager protocol (`start`/`stop` are no-ops,
-  as before). Its constructor takes an `ArmInterface`.
-- **`effort` → `force`, and N·m → N.** `piper_control` used `effort` in **N·m**
-  (`command_gripper(position, effort)`, `DEFAULT_GRIPPER_EFFORT = 1.0`). AgileX
-  uses **`force` in Newtons** (`command_gripper(position, force)`,
-  `DEFAULT_GRIPPER_FORCE = 1.0`). The default is coincidentally still `1.0`, but
-  the **unit changed** — a ported call that tuned a specific N·m effort now means
-  that many Newtons. Rename `effort` → `force` and re-check the values.
-- **Max opening is read from the arm, not hardcoded.** `piper_control` hardcoded
-  `_GRIPPER_ANGLE_MAX = 0.07`; `agilex_control` reads it via
-  `get_gripper_max_opening()` (pyAgxArm's `max_range_config`, cached like
-  `get_joint_limits`), so it reflects the actual gripper (0.07 for the 7 cm, 0.10
-  for the 10 cm). `command_open()` opens to this value; `command_position` clips
-  to `[0, max]`.
-- **Force is clamped to a different limit.** `piper_control` clamped effort to
-  `[0, 2.0]` N·m; `agilex_control` clamps force to `[0, 3.0]` N (AgileX's
-  documented gripper force range, `_GRIPPER_FORCE_MAX`). Unlike the max opening,
-  this is **not** queryable from the arm, so it is a constant.
-- **No separate enable / reset.** `piper_control` needed `reset_gripper` /
-  `enable_gripper` before commanding; `agilex_control` does not — pyAgxArm's move
-  command enables the gripper implicitly. `command_gripper(position=None,
-  force=None)` still means "leave that field unchanged" (now implemented by
-  reading the current gripper state).
+  `command_position`, and the context-manager (`start`/`stop` are no-ops, as
+  before). Its constructor takes an `ArmInterface`.
+- **`effort` → `force`, and N·m → N.** piper_control's `effort` was in N·m; agilex's
+  `force` is in Newtons. The default is still `1.0`, but the unit changed — a tuned
+  N·m value now means that many Newtons. Rename `effort` → `force` and re-check the
+  values.
+- **Max opening is read from the arm, not hardcoded.** `get_gripper_max_opening()`
+  reflects the actual gripper (0.07 m for the 7 cm, 0.10 m for the 10 cm), where
+  piper_control hardcoded 0.07. `command_open()` opens to this value;
+  `command_position` clips to `[0, max]`.
+- **Force is clamped to a different limit.** piper_control clamped effort to
+  `[0, 2.0]` N·m; agilex clamps force to `[0, 3.0]` N. Unlike the max opening, this
+  limit isn't queryable from the arm, so it's a constant.
+- **No separate enable / reset.** piper_control needed `reset_gripper` /
+  `enable_gripper` before commanding; agilex doesn't — the move command enables the
+  gripper implicitly. `command_gripper(position=None, force=None)` still means
+  "leave that field unchanged".
 - `disable_gripper()` is kept (WARNING: the gripper goes limp and may drop its
-  load). `get_gripper_status()` becomes `get_gripper_state()` returning
-  `(position_m, force_N)`. `init_effector` is called **before** `connect()` (per
-  pyAgxArm's effector docs) and is safe even with no gripper attached.
+  load). `get_gripper_status()` is now `get_gripper_state()`, returning
+  `(position_m, force_N)`.
 
 ## Calibration offsets
 
-`CalibratedArmInterface` (a subclass of `ArmInterface`) is the port of
-piper_control's calibrated interface / `j0_calibration_offset` — a software offset
-applied on read and command, now per joint rather than just j0. An arm's readings
-can shift at power-on or reset; joint zeroing measures an offset per joint, so any
-code built on the interface sees true joint angles rather than the shifted raw ones.
+`CalibratedArmInterface` (a subclass of `ArmInterface`) ports piper_control's
+calibrated interface / `j0_calibration_offset` — a software offset applied on read
+and command, now per joint rather than just j0. Readings can shift at power-on or
+reset; measuring an offset per joint lets code on the interface see true joint
+angles instead of the shifted raw ones.
 
 - `set_calibration_offsets(offsets)` takes one offset per joint: the raw angle a
-  joint reports when it's actually at 0 rad. The interface subtracts that offset
-  from every reading, so `calibrated = raw − offset`.
+  joint reports when it's actually at 0 rad. The interface subtracts it, so
+  `calibrated = raw − offset`.
 - `get_joint_positions()` returns the calibrated frame; pass `raw=True` to bypass.
-  `command_joint_position_mit(...)` shifts the target back into the raw frame
-  before sending (also with a `raw=True` escape hatch).
+  `command_joint_position_mit(...)` shifts the target back into the raw frame before
+  sending (also with a `raw=True` escape hatch).
 - `is_calibrated` and `calibration_offsets` expose the state;
   `clear_calibration_offsets()` drops them.
-- The offsets live only in the object and are valid until the arm's next power-on
-  or reset, so clear them whenever the arm leaves the enabled state. Until offsets
-  are set, it behaves exactly like `ArmInterface` and reports raw angles.
+- Offsets live only in the object and hold until the arm's next power-on or reset,
+  so clear them whenever the arm leaves the enabled state. Until they're set, it
+  behaves exactly like `ArmInterface` and reports raw angles.
 
 ## Deliberately dropped (do not port)
 
