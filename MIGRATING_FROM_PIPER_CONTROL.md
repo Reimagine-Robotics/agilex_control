@@ -110,16 +110,17 @@ dropped APIs and not-yet-ported ones are listed at the end.
 
 ## Reads can raise before the first frame
 
-`get_joint_positions`, `get_joint_velocities`, and `get_joint_torques` raise
-`RuntimeError` until the first CAN frame arrives; in the same situation `piper_sdk`
-returned `[0, 0, 0, 0, 0, 0]`. In a control loop, catch it and skip the tick
-(matches AgileX's own demos) — it's mainly a startup window, and once frames flow
-the values are cached.
+**What changed:** `get_joint_positions`, `get_joint_velocities`, and
+`get_joint_torques` raise `RuntimeError` until the first CAN frame arrives. In the
+same situation, `piper_sdk` returned `[0, 0, 0, 0, 0, 0]`.
+
+**What to do:** in a control loop, catch it and skip the tick (matches AgileX's
+own demos). It's mainly a startup window — once frames flow, the values are cached.
 
 ## Joint torque and the `c` coefficient
 
-`agilex_control` keeps a per-model wrist coefficient `c` that `piper_control`
-dropped — on both the read and the command side.
+**What changed:** `agilex_control` keeps a per-model wrist coefficient `c` that
+`piper_control` dropped — on both the read and the command side.
 
 **Reads:** `get_joint_torques` returns `effort · c`:
 
@@ -144,12 +145,14 @@ per-joint scale (`arm.direct_scaling_factors()`) for gravity comp — see
 
 ## Joint limits
 
-`get_joint_limits()` returns what the *arm* reports (cached on the first read), not
-`piper_control`'s hardcoded per-model tables — most joints are tighter, a few
-report `±π`, and j6 is wider. If you just accept the arm's limits, most joints end
-up clipped and j6 over-extends; to keep `piper_control`'s limits, call
-`set_joint_limits(min, max)` once right after connecting (`agilex_control` doesn't
-auto-apply them).
+**What changed:** `get_joint_limits()` returns what the *arm* reports (cached on
+the first read), not `piper_control`'s hardcoded per-model tables — so the values
+can differ from the ones your code assumed.
+
+**What to do:** `agilex_control` doesn't auto-apply piper_control's limits. If you
+want specific limits — for example to keep piper_control's — call
+`set_joint_limits(min, max)` once right after connecting; otherwise you get
+whatever the arm reports.
 
 ## Gravity compensation
 
