@@ -11,6 +11,7 @@ from agilex_control import calibrated_agilex_interface
 
 _RAW_ANGLES = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 _OFFSETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+_RECEIVE_TIME = 1760500000.25
 
 
 class _FakeDriver:
@@ -22,7 +23,9 @@ class _FakeDriver:
     self.calls = []
 
   def get_joint_angles(self):
-    return types.SimpleNamespace(msg=list(self._angles))
+    return types.SimpleNamespace(
+        msg=list(self._angles), timestamp=_RECEIVE_TIME
+    )
 
   def move_mit(
       self, joint_index, p_des=0.0, v_des=0.0, kp=10.0, kd=0.8, t_ff=0.0
@@ -66,6 +69,18 @@ def test_reports_positions_relative_to_calibration_offsets():
   assert arm.get_joint_positions() == pytest.approx(expected)
   # raw=True bypasses the offsets.
   assert arm.get_joint_positions(raw=True) == pytest.approx(_RAW_ANGLES)
+
+
+def test_timestamped_positions_carry_receive_time_and_offsets():
+  arm = _calibrated_with_fake()
+  arm.set_calibration_offsets(_OFFSETS)
+  expected = (np.asarray(_RAW_ANGLES) - np.asarray(_OFFSETS)).tolist()
+  reading = arm.get_timestamped_joint_positions()
+  assert reading.positions == pytest.approx(expected)
+  assert reading.timestamp == _RECEIVE_TIME
+  raw_reading = arm.get_timestamped_joint_positions(raw=True)
+  assert raw_reading.positions == pytest.approx(_RAW_ANGLES)
+  assert raw_reading.timestamp == _RECEIVE_TIME
 
 
 def test_clearing_offsets_restores_raw_positions():
