@@ -116,6 +116,8 @@ class MitJointPositionController:
       arm: agilex_interface.ArmInterface,
       kp_gains: Sequence[float] | float,
       kd_gains: Sequence[float] | float,
+      *,
+      joint_limits: dict[str, Sequence[float]] | None = None,
   ):
     """Controller constructor.
 
@@ -123,6 +125,8 @@ class MitJointPositionController:
       arm: The arm interface.
       kp_gains: Either one p-gain per joint, or a single shared p-gain.
       kd_gains: Either one d-gain per joint, or a single shared d-gain.
+      joint_limits: Optional min/max bounds in the target position frame.
+        Defaults to the limits read from the arm.
     """
     self._arm = arm
     self._num_joints = arm.get_num_joints()
@@ -146,10 +150,26 @@ class MitJointPositionController:
       raise ValueError(f"KD gains outside valid range: {self._kd_gains}")
 
     self._rest_position = _arm_rest_positions(arm_type=arm.arm_type)
-    # Read the limits once now to warm the interface's cache and fail fast if
-    # they are unavailable. command_joints re-reads them (cheaply, from that
-    # cache) so a later set_joint_limits is always reflected.
-    arm.get_joint_limits()
+    self._joint_limits = None
+    if joint_limits is not None:
+      bounds = np.asarray(
+          [joint_limits["min"], joint_limits["max"]], dtype=float
+      )
+      if (
+          bounds.shape != (2, self._num_joints)
+          or not np.all(np.isfinite(bounds))
+          or np.any(bounds[0] > bounds[1])
+      ):
+        raise ValueError(
+            "Expected finite, ordered min/max limits for each joint"
+        )
+      self._joint_limits = {
+          "min": bounds[0].tolist(),
+          "max": bounds[1].tolist(),
+      }
+    else:
+      # Warm the cache and fail fast if firmware limits are unavailable.
+      arm.get_joint_limits()
 
   def __enter__(self) -> "MitJointPositionController":
     self.start()
@@ -199,7 +219,11 @@ class MitJointPositionController:
 
     # Re-read the limits each call (cheaply, interface-cached) so a later
     # set_joint_limits is reflected rather than going stale.
-    joint_limits = self._arm.get_joint_limits()
+    joint_limits = (
+        self._arm.get_joint_limits()
+        if self._joint_limits is None
+        else self._joint_limits
+    )
 
     for ji, pos in enumerate(target):
       # Clip the position to limits so we don't send invalid commands.

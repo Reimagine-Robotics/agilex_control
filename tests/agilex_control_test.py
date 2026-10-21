@@ -102,6 +102,38 @@ def test_command_torques_forwards_non_none_only():
   assert arm.torque_cmds == [(0, 1.0), (2, 2.0), (5, 3.0)]
 
 
+def test_explicit_limits_replace_firmware_bounds_and_copy_input() -> None:
+  arm = _FakeArm(limits={"min": [0.0] * 6, "max": [1.0] * 6})
+  limits = {"min": [-0.1] * 6, "max": [1.1] * 6}
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8, joint_limits=limits
+  )
+  limits["min"][0] = -10.0
+  limits["max"][1] = 10.0
+  controller.command_joints([-1.0, 2.0, -0.05, 1.05, 0.0, 1.0])
+  assert [cmd[1] for cmd in arm.position_cmds] == pytest.approx(
+      [-0.1, 1.1, -0.05, 1.05, 0.0, 1.0]
+  )
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"min": [0.0] * 5, "max": [1.0] * 5},
+        {"min": [2.0] * 6, "max": [1.0] * 6},
+        {"min": [float("nan")] * 6, "max": [1.0] * 6},
+        {"min": [0.0] * 6, "max": [float("inf")] * 6},
+    ],
+)
+def test_rejects_invalid_explicit_limits(
+    limits: dict[str, list[float]],
+) -> None:
+  with pytest.raises(ValueError, match="finite, ordered"):
+    agilex_control.MitJointPositionController(
+        _FakeArm(), kp_gains=5.0, kd_gains=0.8, joint_limits=limits
+    )
+
+
 def test_rejects_out_of_range_gains():
   arm = _FakeArm()
   with pytest.raises(ValueError):
