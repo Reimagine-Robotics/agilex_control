@@ -3,11 +3,16 @@
 # pylint: disable=protected-access
 
 import types
+from unittest import mock
 
 import numpy as np
 import pytest
 
-from agilex_control import calibrated_agilex_interface
+from agilex_control import (
+    agilex_control,
+    agilex_interface,
+    calibrated_agilex_interface,
+)
 
 _RAW_ANGLES = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 _OFFSETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
@@ -27,6 +32,12 @@ class _FakeDriver:
         msg=list(self._angles), timestamp=_RECEIVE_TIME
     )
 
+  def get_joint_angle_vel_limits(self, joint_index: int):
+    del joint_index
+    return types.SimpleNamespace(
+        msg=types.SimpleNamespace(min_angle_limit=-2.0, max_angle_limit=2.0)
+    )
+
   def move_mit(
       self, joint_index, p_des=0.0, v_des=0.0, kp=10.0, kd=0.8, t_ff=0.0
   ):
@@ -42,15 +53,19 @@ class _FakeDriver:
     )
 
 
-def _calibrated_with_fake() -> (
-    calibrated_agilex_interface.CalibratedArmInterface
-):
+def _calibrated_with_fake(
+    limits: dict[str, list[float]] | None = None,
+) -> calibrated_agilex_interface.CalibratedArmInterface:
   """Build a CalibratedArmInterface without connecting, backed by a fake."""
-  cls = calibrated_agilex_interface.CalibratedArmInterface
-  arm = cls.__new__(cls)
-  arm._arm = _FakeDriver()
-  arm._calibration_offsets = None
-  return arm
+
+  def connect(arm: agilex_interface.ArmInterface, timeout: float) -> None:
+    del timeout
+    arm._arm = _FakeDriver()
+
+  with mock.patch.object(agilex_interface.ArmInterface, "_connect", connect):
+    return calibrated_agilex_interface.CalibratedArmInterface(
+        calibrated_joint_limits=limits
+    )
 
 
 def test_reports_raw_positions_until_calibrated():
@@ -112,7 +127,7 @@ def test_raw_mit_command_bypasses_the_offsets():
 
 def test_set_calibration_offsets_copies_input():
   arm = _calibrated_with_fake()
-  offsets = np.array(_OFFSETS)
+  offsets = list(_OFFSETS)
   arm.set_calibration_offsets(offsets)
   offsets[0] = 99.0  # mutating the caller's array must not shift calibration
   assert arm.calibration_offsets == pytest.approx(_OFFSETS)
@@ -138,3 +153,58 @@ def test_rejects_non_finite_or_misshaped_offsets(bad):
   with pytest.raises(ValueError):
     arm.set_calibration_offsets(bad)
   assert not arm.is_calibrated
+
+
+def test_controller_limits_follow_calibration_changes() -> None:
+  arm = _calibrated_with_fake({"min": [-0.5] * 6, "max": [0.5] * 6})
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8
+  )
+  controller.command_joints([1.5] * 6)
+  assert [c["p_des"] for c in arm._arm.calls[-6:]] == [1.5] * 6
+
+  arm.set_calibration_offsets([0.2] * 6)
+  controller.command_joints([1.5] * 6)
+  assert [c["p_des"] for c in arm._arm.calls[-6:]] == pytest.approx([0.7] * 6)
+
+  arm.clear_calibration_offsets()
+  controller.command_joints([1.5] * 6)
+  assert [c["p_des"] for c in arm._arm.calls[-6:]] == [1.5] * 6
+
+  arm.set_calibration_offsets([-0.1] * 6)
+  controller.command_joints([-1.5] * 6)
+  assert [c["p_des"] for c in arm._arm.calls[-6:]] == pytest.approx([-0.6] * 6)
+
+
+def test_unconfigured_limits_preserve_firmware_bounds() -> None:
+  arm = _calibrated_with_fake()
+  firmware_limits = arm.get_joint_limits()
+  arm.set_calibration_offsets(_OFFSETS)
+  assert arm.get_joint_limits() == firmware_limits
+  arm.clear_calibration_offsets()
+  assert arm.get_joint_limits() == firmware_limits
+
+
+def test_calibrated_limits_copy_inputs_and_outputs() -> None:
+  limits = {"min": [-0.1] * 6, "max": [1.1] * 6}
+  arm = _calibrated_with_fake(limits)
+  arm.set_calibration_offsets(_OFFSETS)
+  limits["min"][0] = -10.0
+  arm.get_joint_limits()["max"][1] = 10.0
+  assert arm.get_joint_limits() == {"min": [-0.1] * 6, "max": [1.1] * 6}
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"min": [0.0] * 5, "max": [1.0] * 5},
+        {"min": [2.0] * 6, "max": [1.0] * 6},
+        {"min": [float("nan")] * 6, "max": [1.0] * 6},
+        {"min": [0.0] * 6, "max": [float("inf")] * 6},
+    ],
+)
+def test_rejects_invalid_calibrated_limits(
+    limits: dict[str, list[float]],
+) -> None:
+  with pytest.raises(ValueError, match="finite, ordered"):
+    _calibrated_with_fake(limits)

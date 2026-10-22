@@ -6,7 +6,7 @@ above the interface (controllers, gravity compensation, clients) works in the
 true joint frame.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 
@@ -25,9 +25,33 @@ class CalibratedArmInterface(agilex_interface.ArmInterface):
   whenever the arm leaves the enabled state.
   """
 
-  def __init__(self, *args, **kwargs) -> None:
+  def __init__(
+      self,
+      *args,
+      calibrated_joint_limits: Mapping[str, Sequence[float]] | None = None,
+      **kwargs,
+  ) -> None:
+    """Connects with optional limits used only while calibration is active."""
     super().__init__(*args, **kwargs)
     self._calibration_offsets: np.ndarray | None = None
+    self._calibrated_joint_limits: dict[str, list[float]] | None = None
+    if calibrated_joint_limits is not None:
+      bounds = np.asarray(
+          [calibrated_joint_limits["min"], calibrated_joint_limits["max"]],
+          dtype=float,
+      )
+      if (
+          bounds.shape != (2, self.get_num_joints())
+          or not np.all(np.isfinite(bounds))
+          or np.any(bounds[0] > bounds[1])
+      ):
+        raise ValueError(
+            "Expected finite, ordered min/max limits for each joint"
+        )
+      self._calibrated_joint_limits = {
+          "min": bounds[0].tolist(),
+          "max": bounds[1].tolist(),
+      }
 
   @property
   def is_calibrated(self) -> bool:
@@ -74,6 +98,16 @@ class CalibratedArmInterface(agilex_interface.ArmInterface):
       return reading
     positions = np.asarray(reading.positions) - self._calibration_offsets
     return reading._replace(positions=positions.tolist())
+
+  def get_joint_limits(self) -> dict[str, list[float]]:
+    """Uses configured calibrated bounds only while offsets are active.
+
+    Otherwise preserves the firmware bounds, including for callers that
+    have not configured calibrated limits.
+    """
+    if self.is_calibrated and self._calibrated_joint_limits is not None:
+      return {k: list(v) for k, v in self._calibrated_joint_limits.items()}
+    return super().get_joint_limits()
 
   def command_joint_position_mit(
       self,
