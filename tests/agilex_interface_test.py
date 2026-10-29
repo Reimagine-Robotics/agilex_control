@@ -14,6 +14,9 @@ import pytest
 
 from agilex_control import agilex_interface
 
+_GRIPPER_RECEIVE_TIME = 1760500000.25
+_MOTOR_RECEIVE_TIME = 1760500000.5
+
 
 class _FakeDriver:
   """Records move_mit calls so tests can assert the interface's mapping."""
@@ -132,7 +135,8 @@ class _FakeGripper:
     return types.SimpleNamespace(
         msg=types.SimpleNamespace(
             value=self._position, force=self._force, mode=self._mode
-        )
+        ),
+        timestamp=_GRIPPER_RECEIVE_TIME,
     )
 
   def get_gripper_teaching_pendant_param(self, timeout=1.0, min_interval=1.0):
@@ -170,6 +174,41 @@ def test_get_gripper_state_raises_in_angle_mode():
   arm = _interface_with_fake_gripper(_FakeGripper(mode="angle"))
   with pytest.raises(RuntimeError):
     arm.get_gripper_state()
+
+
+def test_timestamped_gripper_state_carries_receive_time():
+  arm = _interface_with_fake_gripper(_FakeGripper(position=0.03, force=1.5))
+  state = arm.get_timestamped_gripper_state()
+  assert (state.position, state.force) == (0.03, 1.5)
+  assert state.timestamp == _GRIPPER_RECEIVE_TIME
+  assert arm.get_gripper_state() == (0.03, 1.5)
+
+
+class _FakeMotorStateDriver:
+  """Serves one motor-state message per joint, each with its own receive time."""
+
+  def __init__(self, joint_nums=6):
+    self.joint_nums = joint_nums
+
+  def get_motor_states(self, joint_index):
+    """Velocity, torque and receive time all identify the joint."""
+    return types.SimpleNamespace(
+        msg=types.SimpleNamespace(
+            velocity=0.1 * joint_index, torque=joint_index
+        ),
+        timestamp=_MOTOR_RECEIVE_TIME + 1e-4 * joint_index,
+    )
+
+
+def test_timestamped_motor_states_carry_the_newest_receive_time():
+  arm = agilex_interface.ArmInterface.__new__(agilex_interface.ArmInterface)
+  arm._arm = _FakeMotorStateDriver()
+  states = arm.get_timestamped_motor_states()
+  assert states.velocities == pytest.approx([0.1 * i for i in range(1, 7)])
+  assert states.torques == [1, 2, 3, 4, 5, 6]
+  assert states.timestamp == _MOTOR_RECEIVE_TIME + 6e-4
+  assert arm.get_joint_velocities() == states.velocities
+  assert arm.get_joint_torques() == states.torques
 
 
 def _arm_with_config(arm_type) -> agilex_interface.ArmInterface:
