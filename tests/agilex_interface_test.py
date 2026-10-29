@@ -185,7 +185,7 @@ def test_timestamped_gripper_state_carries_receive_time():
 
 
 class _FakeMotorStateDriver:
-  """Serves one motor-state message per joint, each with its own receive time."""
+  """Serves a motor-state message per joint, each with its own receive time."""
 
   def __init__(self, joint_nums=6):
     self.joint_nums = joint_nums
