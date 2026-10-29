@@ -149,6 +149,31 @@ class TimestampedJointPositions(NamedTuple):
   timestamp: float
 
 
+class TimestampedMotorStates(NamedTuple):
+  """Joint velocities and torques with the time the arm reported them.
+
+  Each joint's velocity and torque come from that joint's motor-state
+  feedback message. ``timestamp`` is the newest of those messages' CAN receive
+  times, on the same clock as ``TimestampedJointPositions.timestamp``.
+  """
+
+  velocities: list[float]
+  torques: list[float]
+  timestamp: float
+
+
+class TimestampedGripperState(NamedTuple):
+  """Gripper opening and force with the time the gripper reported them.
+
+  ``timestamp`` is the CAN receive time of the gripper status message, on the
+  same clock as ``TimestampedJointPositions.timestamp``.
+  """
+
+  position: float
+  force: float
+  timestamp: float
+
+
 class ArmInterface:
   """A thin wrapper around pyAgxArm for a single AgileX arm.
 
@@ -429,13 +454,7 @@ class ArmInterface:
     Returns:
       Sequence[float]: Joint velocities in radians per second.
     """
-    states = [
-        self._arm.get_motor_states(i)
-        for i in range(1, self.get_num_joints() + 1)
-    ]
-    if any(state is None for state in states):
-      raise RuntimeError("No motor state feedback available.")
-    return [state.msg.velocity for state in states]
+    return self.get_timestamped_motor_states().velocities
 
   def get_joint_torques(self) -> list[float]:
     """
@@ -444,13 +463,21 @@ class ArmInterface:
     Returns:
       Sequence[float]: Joint torques in Nm.
     """
+    return self.get_timestamped_motor_states().torques
+
+  def get_timestamped_motor_states(self) -> TimestampedMotorStates:
+    """Returns the joint velocities (rad/s), torques (Nm) and receive time."""
     states = [
         self._arm.get_motor_states(i)
         for i in range(1, self.get_num_joints() + 1)
     ]
     if any(state is None for state in states):
       raise RuntimeError("No motor state feedback available.")
-    return [state.msg.torque for state in states]
+    return TimestampedMotorStates(
+        velocities=[state.msg.velocity for state in states],
+        torques=[state.msg.torque for state in states],
+        timestamp=max(state.timestamp for state in states),
+    )
 
   def get_joint_limits(self) -> dict[str, list[float]]:
     """
@@ -684,6 +711,17 @@ class ArmInterface:
         angle mode (we only command width mode, so its value would be degrees,
         not metres).
     """
+    state = self.get_timestamped_gripper_state()
+    return state.position, state.force
+
+  def get_timestamped_gripper_state(self) -> TimestampedGripperState:
+    """Returns the gripper position (m), force (N) and receive time.
+
+    Raises:
+      RuntimeError: If no gripper feedback is available, or the gripper is in
+        angle mode (we only command width mode, so its value would be degrees,
+        not metres).
+    """
     status = self._gripper.get_gripper_status()
     if status is None:
       raise RuntimeError("No gripper feedback available.")
@@ -695,7 +733,9 @@ class ArmInterface:
           f"Gripper is in {status.msg.mode!r} mode; only width mode "
           "(metres) is supported."
       )
-    return status.msg.value, status.msg.force
+    return TimestampedGripperState(
+        status.msg.value, status.msg.force, status.timestamp
+    )
 
   def command_gripper(
       self, position: float | None = None, force: float | None = None
