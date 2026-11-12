@@ -102,8 +102,8 @@ def main() -> None:
           " joint's torque broadcasts across all motors)."
       )
     logger.info("Loading gravity compensation model...")
-    model = gravity_compensation.GravityCompensationModel(
-        model_path=args.model_path, joint_names=joint_names
+    model = gravity_compensation.GravityCompensationModel.from_xml_path(
+        args.model_path, joint_names=joint_names
     )
 
     # Prepare the two per-joint corrections to the model torque:

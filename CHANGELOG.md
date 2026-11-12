@@ -19,3 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   velocities and torques, and the gripper opening and force, together with the
   CAN receive time of their feedback. `get_joint_velocities()`,
   `get_joint_torques()` and `get_gripper_state()` read through them.
+
+### Changed
+
+- `GravityCompensationModel` takes a compiled `mujoco.MjModel`, so callers
+  that build their model in memory no longer need an XML file on disk.
+  `GravityCompensationModel.from_xml_path(model_path)` loads an MJCF file as
+  the constructor used to.

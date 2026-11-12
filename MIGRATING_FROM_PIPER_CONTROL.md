@@ -73,7 +73,7 @@ while running:
 |---|---|---|---|
 | `piper_interface.PiperInterface` | `agilex_interface.ArmInterface` | same | Connects in `__init__`; auto-detects the firmware and driver. |
 | `MitJointPositionController` | `MitJointPositionController` | changed | Now the only controller; `start()` uses `set_mit_mode()`, torque is fed raw. See [Controllers](#controllers). |
-| `GravityCompensationModel` | `GravityCompensationModel` | changed | `model_path` is now required. See [Gravity compensation](#gravity-compensation). |
+| `GravityCompensationModel` | `GravityCompensationModel` | changed | Takes a compiled `MjModel`; no bundled model. See [Gravity compensation](#gravity-compensation). |
 | — | `CalibratedArmInterface` | new | Software calibration offsets. See [Calibration offsets](#calibration-offsets). |
 | `JointPositionController` | — | removed | MIT-only now. |
 | `BuiltinJointPositionController` | — | removed | MIT-only now. |
@@ -143,7 +143,9 @@ after connecting; otherwise you get whatever the arm reports.
 
 `GravityCompensationModel` and `predict()` are used as before — two things changed:
 
-- `model_path` is now **required** (no bundled model or `get_default_model_path()`).
+- A model is now **required** (no bundled model or `get_default_model_path()`):
+  pass a compiled `mujoco.MjModel`, or load an MJCF file with
+  `GravityCompensationModel.from_xml_path(model_path)`.
 - `predict()` returns **raw** physics torque. piper_control baked the command
   scale into the model; now you apply it yourself before commanding:
 
