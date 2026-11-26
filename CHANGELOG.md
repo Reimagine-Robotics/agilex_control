@@ -19,3 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   velocities and torques, and the gripper opening and force, together with the
   CAN receive time of their feedback. `get_joint_velocities()`,
   `get_joint_torques()` and `get_gripper_state()` read through them.
+
+### Fixed
+
+- `MitJointPositionController.command_joints` holds a joint that is already past
+  a joint limit where it is, instead of clipping it to the limit at full
+  stiffness, which snapped it there in one tick. It never commands a joint
+  further past a limit than it already is.
