@@ -157,6 +157,8 @@ def test_rejects_non_finite_or_misshaped_offsets(bad):
 
 def test_controller_limits_follow_calibration_changes() -> None:
   arm = _calibrated_with_fake({"min": [-0.5] * 6, "max": [0.5] * 6})
+  # Inside every limit below, so the commands clip to the limits themselves.
+  arm._arm._angles = [0.0] * 6
   controller = agilex_control.MitJointPositionController(
       arm, kp_gains=5.0, kd_gains=0.8
   )
