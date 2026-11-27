@@ -17,6 +17,7 @@ class _FakeArm:
 
   def __init__(self, limits=None):
     self._limits = limits or {"min": [-2.0] * 6, "max": [2.0] * 6}
+    self.positions = [0.0] * 6
     self.mit_mode_calls = 0
     self.position_cmds = []
     self.torque_cmds = []
@@ -46,8 +47,8 @@ class _FakeArm:
     self.torque_cmds.append((joint_index, torque))
 
   def get_joint_positions(self):
-    """Return a stationary pose."""
-    return [0.0] * 6
+    """Return the current pose."""
+    return list(self.positions)
 
 
 def test_start_sets_mit_mode():
@@ -91,6 +92,32 @@ def test_command_joints_clips_to_limits_and_forwards():
   assert arm.position_cmds[0] == (0, 1.0, 5.0, 0.8, 1.0, 0.1)
   assert arm.position_cmds[1] == (1, -1.0, 5.0, 0.8, 2.0, 0.1)
   assert arm.position_cmds[2] == (2, 0.5, 5.0, 0.8, 3.0, 0.1)
+
+
+def test_command_joints_holds_a_joint_already_past_a_limit():
+  arm = _FakeArm(limits={"min": [-1.0] * 6, "max": [1.0] * 6})
+  arm.positions = [1.2, -1.3, 0.0, 0.0, 0.0, 0.0]
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8
+  )
+  # J1 is held where it rests past its limit and J2 eases in from past its
+  # limit, but neither is commanded further out than it already is.
+  controller.command_joints([1.5, -1.25, 0.0, 0.0, 0.0, 0.0])
+  assert [cmd[1] for cmd in arm.position_cmds[:2]] == [1.2, -1.25]
+
+
+def test_command_joints_clips_to_limits_without_a_reading():
+  arm = _FakeArm(limits={"min": [-1.0] * 6, "max": [1.0] * 6})
+
+  def no_feedback():
+    raise RuntimeError("no feedback yet")
+
+  arm.get_joint_positions = no_feedback
+  controller = agilex_control.MitJointPositionController(
+      arm, kp_gains=5.0, kd_gains=0.8
+  )
+  controller.command_joints([2.0, -2.0, 0.0, 0.0, 0.0, 0.0])
+  assert [cmd[1] for cmd in arm.position_cmds[:2]] == [1.0, -1.0]
 
 
 def test_command_torques_forwards_non_none_only():
@@ -156,21 +183,22 @@ class _ScriptedPoseArm(_FakeArm):
 
 def test_move_to_position_retries_through_gap_then_converges():
   target = [0.5] * 6
-  arm = _ScriptedPoseArm(
-      reads=[
-          None,  # feedback gap: should retry rather than give up
-          [0.0] * 6,  # far from the target
-          [0.25] * 6,  # closer
-          [0.5] * 6,  # reached
-      ]
-  )
+  # Each tick reads the pose twice: command_joints for its clip range, then
+  # move_to_position for its convergence check.
+  ticks = [
+      None,  # feedback gap: should retry rather than give up
+      [0.0] * 6,  # far from the target
+      [0.25] * 6,  # closer
+      [0.5] * 6,  # reached
+  ]
+  arm = _ScriptedPoseArm(reads=[read for read in ticks for _ in range(2)])
   controller = agilex_control.MitJointPositionController(
       arm, kp_gains=5.0, kd_gains=0.8
   )
   reached = controller.move_to_position(target, threshold=0.01, timeout=5.0)
   assert reached
   # It kept commanding the target through the gap and intermediate poses.
-  assert len(arm.position_cmds) >= 12
+  assert len(arm.position_cmds) == len(ticks) * 6
 
 
 def test_mit_wire_torque_limit_piper_8bit_below_post8():

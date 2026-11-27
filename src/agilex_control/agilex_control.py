@@ -200,11 +200,18 @@ class MitJointPositionController:
     # Re-read the limits each call (cheaply, interface-cached) so a later
     # set_joint_limits is reflected rather than going stale.
     joint_limits = self._arm.get_joint_limits()
+    current = self._current_positions()
 
     for ji, pos in enumerate(target):
-      # Clip the position to limits so we don't send invalid commands.
+      # Clip the position to limits so we don't send invalid commands. A joint
+      # already past a limit, e.g. resting on a hard stop beyond it, may be
+      # held where it is: clipping it to the limit at full stiffness would
+      # snap it there in one tick.
       min_rad = joint_limits["min"][ji]
       max_rad = joint_limits["max"][ji]
+      if current is not None:
+        min_rad = min(min_rad, current[ji])
+        max_rad = max(max_rad, current[ji])
       pos = min(max(pos, min_rad), max_rad)
 
       # pyAgxArm applies the per-model/firmware torque scaling and limit
@@ -217,6 +224,12 @@ class MitJointPositionController:
           torque_ff=torques_ff[ji],
           velocity=velocities[ji],
       )
+
+  def _current_positions(self) -> Sequence[float] | None:
+    try:
+      return self._arm.get_joint_positions()
+    except RuntimeError:
+      return None
 
   def move_to_position(
       self,
