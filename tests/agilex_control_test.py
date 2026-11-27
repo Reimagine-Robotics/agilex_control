@@ -183,21 +183,22 @@ class _ScriptedPoseArm(_FakeArm):
 
 def test_move_to_position_retries_through_gap_then_converges():
   target = [0.5] * 6
-  arm = _ScriptedPoseArm(
-      reads=[
-          None,  # feedback gap: should retry rather than give up
-          [0.0] * 6,  # far from the target
-          [0.25] * 6,  # closer
-          [0.5] * 6,  # reached
-      ]
-  )
+  # Each tick reads the pose twice: command_joints for its clip range, then
+  # move_to_position for its convergence check.
+  ticks = [
+      None,  # feedback gap: should retry rather than give up
+      [0.0] * 6,  # far from the target
+      [0.25] * 6,  # closer
+      [0.5] * 6,  # reached
+  ]
+  arm = _ScriptedPoseArm(reads=[read for read in ticks for _ in range(2)])
   controller = agilex_control.MitJointPositionController(
       arm, kp_gains=5.0, kd_gains=0.8
   )
   reached = controller.move_to_position(target, threshold=0.01, timeout=5.0)
   assert reached
   # It kept commanding the target through the gap and intermediate poses.
-  assert len(arm.position_cmds) >= 12
+  assert len(arm.position_cmds) == len(ticks) * 6
 
 
 def test_mit_wire_torque_limit_piper_8bit_below_post8():
